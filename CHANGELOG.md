@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Duplicate Result Elimination**: Fixed deduplication algorithm to focus on mathematical uniqueness rather than descriptive differences
 - **Import Statement Organization**: Cleaned up import order and removed unused imports
+- **GNSS Band Correction**: Fixed GNSS bands to be receive-only (no transmission) to prevent incorrect aggressor calculations
+- **Configuration Validation**: Updated band validation to properly handle receive-only bands (GNSS) without false warnings
+- **Cloud Deployment**: Added graceful handling for missing pyperclip in cloud environments with fallback text areas
+- **Data Structure Consistency**: Standardized frequency field names across all IMD calculation types
 
 ### Improved
 - **Algorithm Performance**: Optimized interference calculation engine with intelligent result filtering

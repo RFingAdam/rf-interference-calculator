@@ -79,9 +79,10 @@ BAND_LIST: List[Band] = [
     Band("HaLow_KR", 918, 923, 918, 923, "HaLow KR (920.5)", "HaLow"),
     Band("LoRa_US", 902, 928, 902, 928, "LoRaWAN US", "LoRa"),
     Band("LoRa_EU", 863, 870, 863, 870, "LoRaWAN EU", "LoRa"),
-    Band("GNSS_L1", 1559, 1606, 1559, 1606, "GNSS L1/E1", "GNSS"),
-    Band("GNSS_L2", 1215, 1245, 1215, 1245, "GNSS L2", "GNSS"),
-    Band("GNSS_L5", 1164, 1189, 1164, 1189, "GNSS L5/E5", "GNSS"),
+    # GNSS bands are receive-only (no transmission from user equipment)
+    Band("GNSS_L1", 0, 0, 1559, 1606, "GNSS L1/E1", "GNSS"),
+    Band("GNSS_L2", 0, 0, 1215, 1245, "GNSS L2", "GNSS"),
+    Band("GNSS_L5", 0, 0, 1164, 1189, "GNSS L5/E5", "GNSS"),
 ]
 
 BANDS = {b.code: b for b in BAND_LIST}

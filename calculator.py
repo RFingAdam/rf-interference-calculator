@@ -22,22 +22,35 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
             b1_rx_high = b1.rx_high + guard
             b2_rx_low = b2.rx_low - guard
             b2_rx_high = b2.rx_high + guard
-            # Tx-Tx overlap
-            if not (b1_tx_high < b2_tx_low or b2_tx_high < b1_tx_low):
-                overlap_alerts.append(f"Tx band overlap: {b1.code} ({b1.tx_low}-{b1.tx_high} MHz) and {b2.code} ({b2.tx_low}-{b2.tx_high} MHz)")
+            
+            # Tx-Tx overlap (skip if either band is receive-only)
+            b1_has_tx = not (b1.tx_low == 0 and b1.tx_high == 0)
+            b2_has_tx = not (b2.tx_low == 0 and b2.tx_high == 0)
+            
+            if b1_has_tx and b2_has_tx:
+                if not (b1_tx_high < b2_tx_low or b2_tx_high < b1_tx_low):
+                    overlap_alerts.append(f"Tx band overlap: {b1.code} ({b1.tx_low}-{b1.tx_high} MHz) and {b2.code} ({b2.tx_low}-{b2.tx_high} MHz)")
+                    
             # Rx-Rx overlap
             if not (b1_rx_high < b2_rx_low or b2_rx_high < b1_rx_low):
                 overlap_alerts.append(f"Rx band overlap: {b1.code} ({b1.rx_low}-{b1.rx_high} MHz) and {b2.code} ({b2.rx_low}-{b2.rx_high} MHz)")
-            # Tx of one in Rx of other
-            if not (b1_tx_high < b2_rx_low or b1_tx_low > b2_rx_high):
+                
+            # Tx of one in Rx of other (skip if transmitting band is receive-only)
+            if b1_has_tx and not (b1_tx_high < b2_rx_low or b1_tx_low > b2_rx_high):
                 overlap_alerts.append(f"Tx({b1.code}) overlaps Rx({b2.code})")
-            if not (b2_tx_high < b1_rx_low or b2_tx_low > b1_rx_high):
+            if b2_has_tx and not (b2_tx_high < b1_rx_low or b2_tx_low > b1_rx_high):
                 overlap_alerts.append(f"Tx({b2.code}) overlaps Rx({b1.code})")
 
-    # Harmonics (2H, 3H)
+    # Harmonics (2H, 3H) - Skip receive-only bands (tx_low = tx_high = 0)
     for b in selected_bands:
+        # Skip receive-only bands like GNSS
+        if b.tx_low == 0 and b.tx_high == 0:
+            continue
+            
         for order in (2, 3):
             for edge in [b.tx_low, b.tx_high]:
+                if edge == 0:  # Additional safety check
+                    continue
                 freq = edge * order
                 for victim in selected_bands:
                     rx_low = victim.rx_low - guard
@@ -57,15 +70,27 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
     # IM3 exhaustive edge cases (all band pairs, all edges)
     for i in range(n):
         b1 = selected_bands[i]
+        # Skip receive-only bands as aggressors
+        if b1.tx_low == 0 and b1.tx_high == 0:
+            continue
+            
         for j in range(n):
             if i == j:
                 continue
             b2 = selected_bands[j]
+            # Skip receive-only bands as aggressors  
+            if b2.tx_low == 0 and b2.tx_high == 0:
+                continue
+                
             A_edges = [b1.tx_low, b1.tx_high]
             B_edges = [b2.tx_low, b2.tx_high]
             # Fundamental-only (2A ± B, 2B ± A)
             for A in A_edges:
+                if A == 0:  # Additional safety check
+                    continue
                 for B in B_edges:
+                    if B == 0:  # Additional safety check
+                        continue
                     for sign in [-1, 1]:
                         freq1 = 2*A + sign*B
                         for victim in selected_bands:
@@ -185,13 +210,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                             risk = rx_low <= freq4 <= rx_high
                             results.append(dict(
                                 Type="IM4",
+                                IM3_Type="Higher-order",
                                 Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} + 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
-                                Freq_low=freq4,
-                                Freq_high=freq4,
+                                Frequency_MHz=round(freq4, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
                                 Risk="⚠️" if risk else "✓",
-                                RiskLevel=risk_level(freq4, freq4, rx_low, rx_high),
+                                Details=f"IM4: 2×{A} + 2×{B} = {freq4:.1f} MHz (A={b1.code}, B={b2.code})",
                             ))
             # IM5 (3f1±2f2)
             if imd5:
@@ -205,13 +230,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                                 risk = rx_low <= freq5 <= rx_high
                                 results.append(dict(
                                     Type="IM5",
+                                    IM3_Type="Higher-order",
                                     Formula=f"3×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
-                                    Freq_low=freq5,
-                                    Freq_high=freq5,
+                                    Frequency_MHz=round(freq5, 2),
                                     Aggressors=f"{b1.code}, {b2.code}",
                                     Victims=victim.code if risk else '',
                                     Risk="⚠️" if risk else "✓",
-                                    RiskLevel=risk_level(freq5, freq5, rx_low, rx_high),
+                                    Details=f"IM5: 3×{A} {'+' if sign>0 else '-'} 2×{B} = {freq5:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
             # IM7 (4f1±3f2)
             if imd7:
@@ -225,18 +250,22 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                                 risk = rx_low <= freq7 <= rx_high
                                 results.append(dict(
                                     Type="IM7",
+                                    IM3_Type="Higher-order",
                                     Formula=f"4×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 3×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
-                                    Freq_low=freq7,
-                                    Freq_high=freq7,
+                                    Frequency_MHz=round(freq7, 2),
                                     Aggressors=f"{b1.code}, {b2.code}",
                                     Victims=victim.code if risk else '',
                                     Risk="⚠️" if risk else "✓",
-                                    RiskLevel=risk_level(freq7, freq7, rx_low, rx_high),
+                                    Details=f"IM7: 4×{A} {'+' if sign>0 else '-'} 3×{B} = {freq7:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
     # ACLR check (optional, for all pairs)
     if aclr_margin > 0:
         for i in range(n):
             b1 = selected_bands[i]
+            # Skip receive-only bands for ACLR (no transmission)
+            if b1.tx_low == 0 and b1.tx_high == 0:
+                continue
+                
             for j in range(n):
                 if i == j:
                     continue
@@ -244,20 +273,20 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                 aclr_risk = aclr_check(b1.tx_high, b2.rx_low, aclr_margin)
                 results.append(dict(
                     Type="ACLR",
+                    IM3_Type="Adjacent-channel",
                     Formula=f"{b1.code}_tx_high vs {b2.code}_rx_low",
-                    Freq_low=b1.tx_high,
-                    Freq_high=b2.rx_low,
+                    Frequency_MHz=round((b1.tx_high + b2.rx_low) / 2, 2),
                     Aggressors=b1.code,
                     Victims=b2.code if aclr_risk else '',
                     Risk="⚠️" if aclr_risk else "✓",
-                    RiskLevel="High" if aclr_risk else "Low",
+                    Details=f"ACLR: {b1.tx_high} MHz vs {b2.rx_low} MHz (gap: {abs(b1.tx_high - b2.rx_low):.1f} MHz)",
                 ))
     # Deduplicate: focus on mathematical uniqueness rather than descriptive differences
     seen = set()
     deduped = []
     for r in results:
         # Create unique key based on actual mathematical content
-        freq = r.get('Frequency_MHz', r.get('Freq_low', 0))
+        freq = r.get('Frequency_MHz', 0)
         aggressors = tuple(sorted(r.get('Aggressors', '').split(', '))) if r.get('Aggressors') else ()
         victims = r.get('Victims', '')
         
@@ -272,10 +301,10 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
         if key not in seen:
             seen.add(key)
             deduped.append(r)
-    # Sort: risk items (Risk='⚠️') at the top, then by Type, Formula, Frequency_MHz/Freq_low
+    # Sort: risk items (Risk='⚠️') at the top, then by Type, Formula, Frequency_MHz
     def sort_key(r):
         risk = 0 if r.get('Risk') == '⚠️' else 1
-        freq = r.get('Frequency_MHz', r.get('Freq_low', 0))
+        freq = r.get('Frequency_MHz', 0)
         return (risk, str(r.get('Type')), str(r.get('Formula')), freq)
     deduped.sort(key=sort_key)
     return deduped, overlap_alerts
@@ -301,6 +330,10 @@ def evaluate(
     imd7: bool = False,
     aclr_margin: float = 0.0
 ) -> List[Dict]:
+    # Skip calculations if tx_band is receive-only (like GNSS)
+    if tx_band.tx_low == 0 and tx_band.tx_high == 0:
+        return []
+        
     rx_low, rx_high = rx_band.rx_low - guard, rx_band.rx_high + guard
     rows = []
 
@@ -448,19 +481,32 @@ def validate_band_configuration(selected_bands: List[Band]) -> List[str]:
     
     # Check for invalid frequency ranges
     for band in selected_bands:
-        if band.tx_low >= band.tx_high:
+        # Check if this is a receive-only band (like GNSS)
+        is_rx_only = (band.tx_low == 0 and band.tx_high == 0)
+        
+        # Validate Tx range (skip for receive-only bands)
+        if not is_rx_only and band.tx_low >= band.tx_high:
             warnings.append(f"Invalid Tx range for {band.code}: {band.tx_low} >= {band.tx_high}")
+            
+        # Validate Rx range (always required)
         if band.rx_low >= band.rx_high:
             warnings.append(f"Invalid Rx range for {band.code}: {band.rx_low} >= {band.rx_high}")
-        if band.tx_low <= 0 or band.rx_low <= 0:
+            
+        # Validate positive frequencies (allow 0 for Tx in receive-only bands)
+        if (not is_rx_only and band.tx_low <= 0) or band.rx_low <= 0:
             warnings.append(f"Invalid frequency values for {band.code}: frequencies must be positive")
     
     # Check for suspicious configurations
     for band in selected_bands:
-        tx_bw = band.tx_high - band.tx_low
+        # Check if this is a receive-only band
+        is_rx_only = (band.tx_low == 0 and band.tx_high == 0)
+        
+        if not is_rx_only:
+            tx_bw = band.tx_high - band.tx_low
+            if tx_bw > 1000:  # > 1 GHz
+                warnings.append(f"Very wide Tx band for {band.code}: {tx_bw:.1f} MHz")
+                
         rx_bw = band.rx_high - band.rx_low
-        if tx_bw > 1000:  # > 1 GHz
-            warnings.append(f"Very wide Tx band for {band.code}: {tx_bw:.1f} MHz")
         if rx_bw > 1000:  # > 1 GHz
             warnings.append(f"Very wide Rx band for {band.code}: {rx_bw:.1f} MHz")
     

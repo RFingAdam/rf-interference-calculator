@@ -4,8 +4,15 @@ import pandas as pd
 from bands import BANDS, Band
 from calculator import evaluate, calculate_all_products, validate_band_configuration
 import altair as alt
-import pyperclip
 from io import BytesIO
+
+# Import pyperclip with fallback for cloud deployment
+try:
+    import pyperclip
+    PYPERCLIP_AVAILABLE = True
+except ImportError:
+    PYPERCLIP_AVAILABLE = False
+    st.warning("⚠️ Clipboard functionality not available in this deployment environment.")
 
 st.set_page_config(page_title="RF Spectrum Interference Calculator", page_icon="📡", layout="wide", initial_sidebar_state="expanded")
 st.title("📡 RF Spectrum Interference Calculator")
@@ -362,8 +369,11 @@ if st.button("🚀 Calculate Interference", type=calc_button_type, use_container
                     md_header += f"**Guard Margin:** {guard} MHz  \n\n"
                     
                     md = md_header + export_results.to_markdown(index=False)
-                    pyperclip.copy(md)
-                    st.success("📋 Results copied to clipboard as Markdown!")
+                    if PYPERCLIP_AVAILABLE:
+                        pyperclip.copy(md)
+                        st.success("📋 Results copied to clipboard as Markdown!")
+                    else:
+                        st.text_area("📋 Markdown Results (copy manually):", md, height=200)
             
             with col3:
                 # Enhanced PDF report
@@ -542,8 +552,11 @@ if st.button("🚀 Calculate Interference", type=calc_button_type, use_container
         # Copy to clipboard (markdown)
         if st.button("Copy Results as Markdown"):
             md = results.to_markdown(index=False)
-            pyperclip.copy(md)
-            st.info("Results copied to clipboard as Markdown!")
+            if PYPERCLIP_AVAILABLE:
+                pyperclip.copy(md)
+                st.info("Results copied to clipboard as Markdown!")
+            else:
+                st.text_area("📋 Markdown Results (copy manually):", md, height=200)
 
         # PDF report (placeholder)
         if st.button("Generate PDF Report"):

@@ -1,0 +1,8 @@
+# Core dependencies for RF Spectrum Interference Calculator
+streamlit>=1.28.0
+pandas>=2.0.0
+altair>=5.0.0
+openpyxl>=3.1.0
+
+# Optional: clipboard functionality (may not work in cloud deployments)
+# pyperclip>=1.8.0
