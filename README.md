@@ -67,5 +67,27 @@ See [CHANGELOG.md](CHANGELOG.md) for full release history.
 ## Authors
 Adam Engelbrecht
 
-## License
-[MIT](LICENSE)
+## 📄 License
+
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+
+### What this means:
+- ✅ **Free and open source**: Anyone can use, modify, and distribute
+- ✅ **Attribution required**: Must credit Adam Engelbrecht (RFingAdam)
+- ✅ **Copyleft protection**: Derivative works must remain open source under GPL-3.0
+- ✅ **Commercial use allowed**: Companies can use and profit from this software
+- ⚠️ **Source code must be shared**: Any modifications must be made available under GPL-3.0
+- ⚠️ **Patent protection**: Contributors grant patent licenses for their contributions
+
+### Perfect for:
+- **Personal and educational use**
+- **Corporate RF engineering teams**
+- **Research institutions**
+- **Open source projects**
+- **Commercial products** (with GPL-3.0 compliance)
+
+### GPL-3.0 Benefits:
+The GPL-3.0 ensures this tool remains free and open while allowing commercial use. It protects against proprietary forks that would lock users out of improvements. If you build upon this work, you must share your enhancements with the community.
+
+---
+*This tool is provided for educational and research purposes. Users are responsible for validating results against regulatory requirements and industry standards.*
