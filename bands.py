@@ -64,21 +64,53 @@ BAND_LIST: List[Band] = [
     Band("LTE_B66", 1710, 1780, 2110, 2200, "LTE B66 (AWS-3)", "LTE"),
     Band("LTE_B71", 663, 698, 617, 652, "LTE B71 (600)", "LTE"),
 
-    # Wi-Fi, ISM, BLE, etc.
+    # Wi-Fi
     Band("WiFi_2G", 2400, 2495, 2400, 2495, "Wi-Fi 2.4G Band", "Wi-Fi"),
     Band("WiFi_5G", 4900, 5900, 4900, 5900, "Wi-Fi 5G Band", "Wi-Fi"),
     Band("WiFi_6E", 5900, 7125, 5900, 7125, "Wi-Fi 6E Band", "Wi-Fi"),
+    
+    # Bluetooth/BLE
     Band("BLE", 2402, 2480, 2402, 2480, "Bluetooth LE (2402-2480)", "BLE"),
+    
+    # ISM Bands
     Band("UHF433", 433, 435, 433, 435, "UHF 433 MHz", "ISM"),
     Band("ISM902", 902, 928, 902, 928, "ISM 902-928 MHz", "ISM"),
+    Band("ISM_24", 2400, 2500, 2400, 2500, "ISM 2.4 GHz Band", "ISM"),
+    Band("ISM_58", 5725, 5875, 5725, 5875, "ISM 5.8 GHz Band", "ISM"),
+    
+    # IoT/Smart Home (2.4 GHz)
+    Band("Zigbee", 2405, 2480, 2405, 2480, "Zigbee (2.4 GHz)", "IoT"),
+    Band("Thread", 2405, 2480, 2405, 2480, "Thread (2.4 GHz)", "IoT"),
+    Band("Matter", 2405, 2480, 2405, 2480, "Matter/Thread (2.4 GHz)", "IoT"),
+    
+    # UHF Bands
+    
+    # LoRaWAN
+    Band("LoRa_US", 902, 928, 902, 928, "LoRaWAN US", "LoRa"),
+    Band("LoRa_EU", 863, 870, 863, 870, "LoRaWAN EU", "LoRa"),
+    
+    # HaLow (Wi-Fi Sub-1 GHz)
     Band("HaLow_NA", 902, 928, 902, 928, "HaLow NA (915)", "HaLow"),
     Band("HaLow_EU", 863, 868, 863, 868, "HaLow EU (866)", "HaLow"),
     Band("HaLow_AUS", 915, 928, 915, 928, "HaLow AUS/NZ (920)", "HaLow"),
     Band("HaLow_JP", 920.5, 928.1, 920.5, 928.1, "HaLow JP (922.5)", "HaLow"),
     Band("HaLow_TW", 920, 925, 920, 925, "HaLow TW (922.5)", "HaLow"),
     Band("HaLow_KR", 918, 923, 918, 923, "HaLow KR (920.5)", "HaLow"),
-    Band("LoRa_US", 902, 928, 902, 928, "LoRaWAN US", "LoRa"),
-    Band("LoRa_EU", 863, 870, 863, 870, "LoRaWAN EU", "LoRa"),
+    
+    # RFID/NFC
+    Band("RFID_HF", 13.56, 13.56, 13.56, 13.56, "RFID HF (13.56 MHz)", "RFID"),
+    Band("RFID_UHF", 860, 960, 860, 960, "RFID UHF (900 MHz)", "RFID"),
+    Band("NFC", 13.56, 13.56, 13.56, 13.56, "NFC (13.56 MHz)", "RFID"),
+    
+    # Public Safety
+    Band("TETRA", 380, 470, 380, 470, "TETRA (400 MHz)", "Public Safety"),
+    Band("P25_VHF", 136, 174, 136, 174, "P25 VHF (150 MHz)", "Public Safety"),
+    Band("P25_UHF", 380, 520, 380, 520, "P25 UHF (450 MHz)", "Public Safety"),
+    
+    # Amateur Radio
+    Band("Amateur_2M", 144, 148, 144, 148, "Amateur 2m (VHF)", "Amateur"),
+    Band("Amateur_70CM", 420, 450, 420, 450, "Amateur 70cm (UHF)", "Amateur"),
+    
     # GNSS bands are receive-only (no transmission from user equipment)
     Band("GNSS_L1", 0, 0, 1559, 1606, "GNSS L1/E1", "GNSS"),
     Band("GNSS_L2", 0, 0, 1215, 1245, "GNSS L2", "GNSS"),

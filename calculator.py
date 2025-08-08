@@ -56,6 +56,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                     rx_low = victim.rx_low - guard
                     rx_high = victim.rx_high + guard
                     risk = rx_low <= freq <= rx_high
+                    
+                    # Enhanced risk assessment with severity
+                    if risk:
+                        risk_symbol, severity = assess_risk_severity(freq, victim.code, b.code, f"{order}H")
+                    else:
+                        risk_symbol, severity = "✅", 0
+                    
                     results.append(dict(
                         Type=f"{order}H",
                         IM3_Type="Harmonic",
@@ -63,7 +70,8 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                         Frequency_MHz=round(freq, 2),
                         Aggressors=b.code,
                         Victims=victim.code if risk else '',
-                        Risk="⚠️" if risk else "✓",
+                        Risk=risk_symbol,
+                        Severity=severity,
                         Details=f"{order}th Harmonic: {order}×{edge} = {freq:.1f} MHz (Band: {b.code})",
                     ))
 
@@ -99,6 +107,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                     rx_low = victim.rx_low - guard
                                     rx_high = victim.rx_high + guard
                                     risk = rx_low <= freq_plus_minus <= rx_high
+                                    
+                                    # Enhanced risk assessment with severity
+                                    if risk:
+                                        risk_symbol, severity = assess_risk_severity(freq_plus_minus, victim.code, f"{b1.code}, {b2.code}", "IM2")
+                                    else:
+                                        risk_symbol, severity = "✅", 0
+                                    
                                     results.append(dict(
                                         Type="IM2",
                                         IM3_Type="Beat Frequency",
@@ -106,7 +121,8 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                         Frequency_MHz=round(freq_plus_minus, 2),
                                         Aggressors=f"{b1.code}, {b2.code}",
                                         Victims=victim.code if risk else '',
-                                        Risk="⚠️" if risk else "✓",
+                                        Risk=risk_symbol,
+                                        Severity=severity,
                                         Details=f"IM2 Beat: {A} {op_str} {B} = {freq_plus_minus:.1f} MHz (A={b1.code}, B={b2.code})",
                                     ))
                             
@@ -118,6 +134,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                         rx_low = victim.rx_low - guard
                                         rx_high = victim.rx_high + guard
                                         risk = rx_low <= freq_reverse <= rx_high
+                                        
+                                        # Enhanced risk assessment with severity
+                                        if risk:
+                                            risk_symbol, severity = assess_risk_severity(freq_reverse, victim.code, f"{b1.code}, {b2.code}", "IM2")
+                                        else:
+                                            risk_symbol, severity = "✅", 0
+                                        
                                         results.append(dict(
                                             Type="IM2",
                                             IM3_Type="Beat Frequency",
@@ -125,7 +148,8 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                             Frequency_MHz=round(freq_reverse, 2),
                                             Aggressors=f"{b1.code}, {b2.code}",
                                             Victims=victim.code if risk else '',
-                                            Risk="⚠️" if risk else "✓",
+                                            Risk=risk_symbol,
+                                            Severity=severity,
                                             Details=f"IM2 Beat: {B} - {A} = {freq_reverse:.1f} MHz (B={b2.code}, A={b1.code})",
                                         ))
 
@@ -159,6 +183,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
                             risk = rx_low <= freq1 <= rx_high
+                            
+                            # Enhanced risk assessment with severity
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(freq1, victim.code, f"{b1.code}, {b2.code}", "IM3")
+                            else:
+                                risk_symbol, severity = "✅", 0
+                            
                             results.append(dict(
                                 Type="IM3",
                                 IM3_Type="Fundamental-only",
@@ -166,7 +197,8 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                 Frequency_MHz=round(freq1, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
-                                Risk="⚠️" if risk else "✓",
+                                Risk=risk_symbol,
+                                Severity=severity,
                                 Details=f"IM3 (Fundamental-only): 2×{A} {'+' if sign>0 else '-'} {B} = {freq1:.1f} MHz (A={b1.code}, B={b2.code})",
                             ))
             for B in B_edges:
@@ -177,6 +209,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
                             risk = rx_low <= freq2 <= rx_high
+                            
+                            # Enhanced risk assessment with severity
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(freq2, victim.code, f"{b1.code}, {b2.code}", "IM3")
+                            else:
+                                risk_symbol, severity = "✅", 0
+                            
                             results.append(dict(
                                 Type="IM3",
                                 IM3_Type="Fundamental-only",
@@ -184,7 +223,8 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                 Frequency_MHz=round(freq2, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
-                                Risk="⚠️" if risk else "✓",
+                                Risk=risk_symbol,
+                                Severity=severity,
                                 Details=f"IM3 (Fundamental-only): 2×{B} {'+' if sign>0 else '-'} {A} = {freq2:.1f} MHz (B={b2.code}, A={b1.code})",
                             ))
             # Mixed 2nd-harmonic/fundamental (2*(2A) ± B, 2*(2B) ± A)
@@ -385,6 +425,21 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
     seen = set()
     deduped = []
     for r in results:
+        # Update legacy risk symbols with severity assessment
+        if r.get('Risk') in ['⚠️', '✓'] and 'Severity' not in r:
+            freq = r.get('Frequency_MHz', 0)
+            victim = r.get('Victims', '')
+            aggressors = r.get('Aggressors', '')
+            product_type = r.get('Type', '')
+            
+            if r.get('Risk') == '⚠️' and victim:  # Only assess risk items with victims
+                risk_symbol, severity = assess_risk_severity(freq, victim, aggressors, product_type)
+                r['Risk'] = risk_symbol
+                r['Severity'] = severity
+            elif r.get('Risk') == '✓':
+                r['Risk'] = '✅'
+                r['Severity'] = 0
+        
         # Create unique key based on actual mathematical content
         freq = r.get('Frequency_MHz', 0)
         aggressors = tuple(sorted(r.get('Aggressors', '').split(', '))) if r.get('Aggressors') else ()
@@ -429,13 +484,32 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
             return 99  # Unknown types
     
     def sort_key(r):
-        risk = 0 if r.get('Risk') == '⚠️' else 1
+        # Sort by severity (high to low), then by signal priority, then by other factors
+        severity = r.get('Severity', 0)
+        # Convert severity to sort priority (higher severity = lower sort value = appears first)
+        severity_priority = 6 - severity if severity > 0 else 10  # Risk items first, then safe items
         signal_priority = get_signal_level_priority(r)
         freq = r.get('Frequency_MHz', 0)
-        return (risk, signal_priority, str(r.get('Type')), str(r.get('Formula')), freq)
+        return (severity_priority, signal_priority, str(r.get('Type')), str(r.get('Formula')), freq)
     
     deduped.sort(key=sort_key)
-    return deduped, overlap_alerts
+    
+    # Filter out physically invalid frequencies (negative or zero)
+    valid_results = []
+    invalid_count = 0
+    
+    for result in deduped:
+        freq = result.get('Frequency_MHz', 0)
+        if freq > 0:  # Only positive frequencies are physically meaningful in RF
+            valid_results.append(result)
+        else:
+            invalid_count += 1
+    
+    # Add note about filtered frequencies if any were removed
+    if invalid_count > 0:
+        overlap_alerts.append(f"Note: {invalid_count} products with invalid frequencies (≤ 0 MHz) were filtered out")
+    
+    return valid_results, overlap_alerts
 
 
 def hits_rx(freq_low: float, freq_high: float, rx_low: float, rx_high: float) -> bool:
@@ -671,3 +745,102 @@ def validate_band_configuration(selected_bands: List[Band]) -> List[str]:
             warnings.append(f"Very wide Rx band for {band.code}: {rx_bw:.1f} MHz")
     
     return warnings
+
+
+def assess_risk_severity(frequency: float, victim_code: str, aggressors: str, product_type: str) -> Tuple[str, int]:
+    """
+    Assess risk severity based on frequency, victim, and interference type.
+    Returns (risk_symbol, severity_level) where severity_level is 1-5 (5 = most critical).
+    """
+    # Critical frequency bands for different services
+    critical_bands = {
+        # GPS/GNSS (high precision navigation)
+        'GNSS_L1': (1575.0, 1576.0, 5),  # Primary GPS frequency
+        'GNSS_L2': (1227.0, 1228.0, 5),  # GPS L2 frequency
+        'GNSS_L5': (1176.0, 1177.0, 4),  # GPS L5 frequency
+        
+        # ISM bands (unlicensed, high interference potential)
+        'ISM_24': (2400.0, 2500.0, 4),   # 2.4 GHz ISM (BLE, Wi-Fi, etc.)
+        'ISM_58': (5725.0, 5875.0, 3),   # 5.8 GHz ISM
+        
+        # Public Safety (critical communications)
+        'FirstNet': (758.0, 768.0, 5),   # FirstNet uplink
+        'PublicSafety': (763.0, 775.0, 5), # Public safety bands
+        
+        # Cellular uplinks (interference affects base stations)
+        'Cellular_UL': (824.0, 894.0, 4), # Cellular uplinks (affects towers)
+        
+        # Wi-Fi (common coexistence issues)
+        'WiFi_24': (2400.0, 2495.0, 4),  # Wi-Fi 2.4 GHz
+        'WiFi_5': (5150.0, 5925.0, 3),   # Wi-Fi 5/6 GHz
+        
+        # BLE (sensitive to interference)
+        'BLE': (2402.0, 2480.0, 4),      # Bluetooth Low Energy
+    }
+    
+    # Base severity assessment
+    severity = 1  # Default low risk
+    risk_symbol = "⚠️"
+    
+    # Assess victim criticality
+    victim_criticality = {
+        'GNSS_L1': 5, 'GNSS_L2': 5, 'GNSS_L5': 4,  # GPS is critical
+        'LTE_B13': 5, 'LTE_B14': 5,  # Public safety LTE bands
+        'BLE': 4,     # BLE sensitive to interference
+        'WiFi_2G': 4, # Wi-Fi 2.4G high usage
+        'WiFi_5G': 3, # Wi-Fi 5G less congested
+        'HaLow_NA': 3, # Wi-Fi HaLow growing importance
+    }
+    
+    # Get victim base severity
+    for victim_pattern, crit_level in victim_criticality.items():
+        if victim_pattern in victim_code:
+            severity = max(severity, crit_level)
+            break
+    
+    # Check if frequency falls in critical bands
+    for band_name, (low, high, band_severity) in critical_bands.items():
+        if low <= frequency <= high:
+            severity = max(severity, band_severity)
+            # Special case: GPS interference is always critical
+            if 'GNSS' in band_name:
+                severity = 5
+            break
+    
+    # Product type severity modifiers
+    if product_type == '3H':  # 3rd harmonics are typically stronger
+        severity = min(severity + 1, 5)
+    elif product_type == '2H':  # 2nd harmonics are very strong
+        severity = min(severity + 1, 5)
+    elif product_type == 'IM2':  # IM2 products are often strong
+        severity = min(severity + 1, 5)
+    elif product_type in ['IM4', 'IM5', 'IM7']:  # Higher order typically weaker
+        severity = max(severity - 1, 1)
+    
+    # Aggressor analysis - multiple aggressors increase risk
+    if ',' in aggressors or ' and ' in aggressors.lower():
+        severity = min(severity + 1, 5)  # Multiple aggressors = higher risk
+    
+    # Special cases for NA Case 1 analysis
+    if 'LTE_B13' in aggressors or 'LTE_B14' in aggressors:
+        # Public safety bands as aggressors are critical
+        severity = min(severity + 1, 5)
+    
+    if 'BLE' in victim_code and 'WiFi' in aggressors:
+        # BLE-WiFi coexistence is critical in ISM band
+        if 2400 <= frequency <= 2500:
+            severity = 5  # Maximum severity for ISM band interference
+    
+    # Determine risk symbol based on severity
+    if severity >= 5:
+        risk_symbol = "🔴"  # Critical - Red circle
+    elif severity >= 4:
+        risk_symbol = "🟠"  # High - Orange circle  
+    elif severity >= 3:
+        risk_symbol = "🟡"  # Medium - Yellow circle
+    elif severity >= 2:
+        risk_symbol = "🔵"  # Low - Blue circle
+    else:
+        risk_symbol = "✅"  # Very Low/Safe - Green check
+    
+    return risk_symbol, severity
