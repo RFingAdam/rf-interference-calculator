@@ -45,16 +45,16 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                     risk = rx_low <= freq <= rx_high
                     results.append(dict(
                         Type=f"{order}H",
+                        IM3_Type="Harmonic",
                         Formula=f"{order}×Tx_{'low' if edge==b.tx_low else 'high'}({b.code})",
-                        Freq_low=freq,
-                        Freq_high=freq,
+                        Frequency_MHz=round(freq, 2),
                         Aggressors=b.code,
                         Victims=victim.code if risk else '',
                         Risk="⚠️" if risk else "✓",
-                        RiskLevel=risk_level(freq, freq, rx_low, rx_high),
+                        Details=f"{order}th Harmonic: {order}×{edge} = {freq:.1f} MHz (Band: {b.code})",
                     ))
 
-    # IM3/IM4/IM5/IM7 exhaustive edge cases (all band pairs, all edges)
+    # IM3 exhaustive edge cases (all band pairs, all edges)
     for i in range(n):
         b1 = selected_bands[i]
         for j in range(n):
@@ -63,7 +63,7 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
             b2 = selected_bands[j]
             A_edges = [b1.tx_low, b1.tx_high]
             B_edges = [b2.tx_low, b2.tx_high]
-            # IM3: 2A ± B, 2B ± A
+            # Fundamental-only (2A ± B, 2B ± A)
             for A in A_edges:
                 for B in B_edges:
                     for sign in [-1, 1]:
@@ -74,13 +74,105 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                             risk = rx_low <= freq1 <= rx_high
                             results.append(dict(
                                 Type="IM3",
+                                IM3_Type="Fundamental-only",
                                 Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} {b2.code}_{'low' if B==b2.tx_low else 'high'}",
-                                Freq_low=freq1,
-                                Freq_high=freq1,
+                                Frequency_MHz=round(freq1, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
                                 Risk="⚠️" if risk else "✓",
-                                RiskLevel=risk_level(freq1, freq1, rx_low, rx_high),
+                                Details=f"IM3 (Fundamental-only): 2×{A} {'+' if sign>0 else '-'} {B} = {freq1:.1f} MHz (A={b1.code}, B={b2.code})",
+                            ))
+            for B in B_edges:
+                for A in A_edges:
+                    for sign in [-1, 1]:
+                        freq2 = 2*B + sign*A
+                        for victim in selected_bands:
+                            rx_low = victim.rx_low - guard
+                            rx_high = victim.rx_high + guard
+                            risk = rx_low <= freq2 <= rx_high
+                            results.append(dict(
+                                Type="IM3",
+                                IM3_Type="Fundamental-only",
+                                Formula=f"2×{b2.code}_{'low' if B==b2.tx_low else 'high'} {'+' if sign>0 else '-'} {b1.code}_{'low' if A==b1.tx_low else 'high'}",
+                                Frequency_MHz=round(freq2, 2),
+                                Aggressors=f"{b1.code}, {b2.code}",
+                                Victims=victim.code if risk else '',
+                                Risk="⚠️" if risk else "✓",
+                                Details=f"IM3 (Fundamental-only): 2×{B} {'+' if sign>0 else '-'} {A} = {freq2:.1f} MHz (B={b2.code}, A={b1.code})",
+                            ))
+            # Mixed 2nd-harmonic/fundamental (2*(2A) ± B, 2*(2B) ± A)
+            for A in A_edges:
+                for B in B_edges:
+                    for sign in [-1, 1]:
+                        freq3 = 2*(2*A) + sign*B
+                        for victim in selected_bands:
+                            rx_low = victim.rx_low - guard
+                            rx_high = victim.rx_high + guard
+                            risk = rx_low <= freq3 <= rx_high
+                            results.append(dict(
+                                Type="IM3",
+                                IM3_Type="2nd Harmonic of A vs Fundamental B",
+                                Formula=f"2×(2×{b1.code}_{'low' if A==b1.tx_low else 'high'}) {'+' if sign>0 else '-'} {b2.code}_{'low' if B==b2.tx_low else 'high'}",
+                                Frequency_MHz=round(freq3, 2),
+                                Aggressors=f"{b1.code}, {b2.code}",
+                                Victims=victim.code if risk else '',
+                                Risk="⚠️" if risk else "✓",
+                                Details=f"IM3 (2nd Harmonic of A vs Fundamental B): 2×(2×{A}) {'+' if sign>0 else '-'} {B} = {freq3:.1f} MHz (A={b1.code}, B={b2.code})",
+                            ))
+            for B in B_edges:
+                for A in A_edges:
+                    for sign in [-1, 1]:
+                        freq4 = 2*(2*B) + sign*A
+                        for victim in selected_bands:
+                            rx_low = victim.rx_low - guard
+                            rx_high = victim.rx_high + guard
+                            risk = rx_low <= freq4 <= rx_high
+                            results.append(dict(
+                                Type="IM3",
+                                IM3_Type="2nd Harmonic of B vs Fundamental A",
+                                Formula=f"2×(2×{b2.code}_{'low' if B==b2.tx_low else 'high'}) {'+' if sign>0 else '-'} {b1.code}_{'low' if A==b1.tx_low else 'high'}",
+                                Frequency_MHz=round(freq4, 2),
+                                Aggressors=f"{b1.code}, {b2.code}",
+                                Victims=victim.code if risk else '',
+                                Risk="⚠️" if risk else "✓",
+                                Details=f"IM3 (2nd Harmonic of B vs Fundamental A): 2×(2×{B}) {'+' if sign>0 else '-'} {A} = {freq4:.1f} MHz (B={b2.code}, A={b1.code})",
+                            ))
+            # 2nd Harmonic of both (2A ± 2B, 2B ± 2A)
+            for A in A_edges:
+                for B in B_edges:
+                    for sign in [-1, 1]:
+                        freq5 = 2*A + sign*2*B
+                        for victim in selected_bands:
+                            rx_low = victim.rx_low - guard
+                            rx_high = victim.rx_high + guard
+                            risk = rx_low <= freq5 <= rx_high
+                            results.append(dict(
+                                Type="IM3",
+                                IM3_Type="2nd Harmonic of A vs 2nd Harmonic of B",
+                                Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
+                                Frequency_MHz=round(freq5, 2),
+                                Aggressors=f"{b1.code}, {b2.code}",
+                                Victims=victim.code if risk else '',
+                                Risk="⚠️" if risk else "✓",
+                                Details=f"IM3 (2nd Harmonic of A vs 2nd Harmonic of B): 2×{A} {'+' if sign>0 else '-'} 2×{B} = {freq5:.1f} MHz (A={b1.code}, B={b2.code})",
+                            ))
+            for B in B_edges:
+                for A in A_edges:
+                    for sign in [-1, 1]:
+                        freq6 = 2*B + sign*2*A
+                        for victim in selected_bands:
+                            rx_low = victim.rx_low - guard
+                            rx_high = victim.rx_high + guard
+                            risk = rx_low <= freq6 <= rx_high
+                            results.append(dict(
+                                Type="IM3",
+                                IM3_Type="2nd Harmonic of B vs 2nd Harmonic of A",
+                                Formula=f"2×{b2.code}_{'low' if B==b2.tx_low else 'high'} {'+' if sign>0 else '-'} 2×{b1.code}_{'low' if A==b1.tx_low else 'high'}",
+                                Frequency_MHz=round(freq6, 2),
+                                Aggressors=f"{b1.code}, {b2.code}",
+                                Victims=victim.code if risk else '',
+                                Risk="⚠️" if risk else "✓",
+                                Details=f"IM3 (2nd Harmonic of B vs 2nd Harmonic of A): 2×{B} {'+' if sign>0 else '-'} 2×{A} = {freq6:.1f} MHz (B={b2.code}, A={b1.code})",
                             ))
             # IM4 (2f1+2f2)
             if imd4:
@@ -160,9 +252,34 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                     Risk="⚠️" if aclr_risk else "✓",
                     RiskLevel="High" if aclr_risk else "Low",
                 ))
-    return results, overlap_alerts
-from typing import List, Tuple, Dict
-from bands import Band
+    # Deduplicate: focus on mathematical uniqueness rather than descriptive differences
+    seen = set()
+    deduped = []
+    for r in results:
+        # Create unique key based on actual mathematical content
+        freq = r.get('Frequency_MHz', r.get('Freq_low', 0))
+        aggressors = tuple(sorted(r.get('Aggressors', '').split(', '))) if r.get('Aggressors') else ()
+        victims = r.get('Victims', '')
+        
+        # For mathematical uniqueness, ignore descriptive IM3_Type differences
+        # Same frequency + same aggressors + same victims = duplicate
+        key = (
+            r.get('Type'),
+            round(freq, 2) if freq else 0,  # Round to avoid floating point precision issues
+            aggressors,  # Sorted aggressor list to handle order differences
+            victims,
+        )
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+    # Sort: risk items (Risk='⚠️') at the top, then by Type, Formula, Frequency_MHz/Freq_low
+    def sort_key(r):
+        risk = 0 if r.get('Risk') == '⚠️' else 1
+        freq = r.get('Frequency_MHz', r.get('Freq_low', 0))
+        return (risk, str(r.get('Type')), str(r.get('Formula')), freq)
+    deduped.sort(key=sort_key)
+    return deduped, overlap_alerts
+
 
 def hits_rx(freq_low: float, freq_high: float, rx_low: float, rx_high: float) -> bool:
     return (
@@ -297,10 +414,54 @@ def evaluate(
     return rows
 
 def risk_level(freq_low, freq_high, rx_low, rx_high):
-    # Simple risk: High if in-band, Med if within 5 MHz, else Low
+    """Enhanced risk assessment with multiple criteria."""
+    # In-band interference (highest priority)
     if rx_low <= freq_low <= rx_high or rx_low <= freq_high <= rx_high:
         return "High"
-    elif abs(freq_low - rx_low) < 5 or abs(freq_high - rx_high) < 5:
+    
+    # Close proximity assessment
+    min_distance = min(
+        abs(freq_low - rx_low), 
+        abs(freq_low - rx_high),
+        abs(freq_high - rx_low), 
+        abs(freq_high - rx_high)
+    )
+    
+    # Adjacent channel interference
+    if min_distance < 1.0:  # Within 1 MHz
+        return "High"
+    elif min_distance < 5.0:  # Within 5 MHz
         return "Med"
-    else:
+    elif min_distance < 20.0:  # Within 20 MHz
         return "Low"
+    else:
+        return "Minimal"
+
+
+def validate_band_configuration(selected_bands: List[Band]) -> List[str]:
+    """Validate band configuration and return list of warnings/errors."""
+    warnings = []
+    
+    if not selected_bands:
+        warnings.append("No bands selected for analysis")
+        return warnings
+    
+    # Check for invalid frequency ranges
+    for band in selected_bands:
+        if band.tx_low >= band.tx_high:
+            warnings.append(f"Invalid Tx range for {band.code}: {band.tx_low} >= {band.tx_high}")
+        if band.rx_low >= band.rx_high:
+            warnings.append(f"Invalid Rx range for {band.code}: {band.rx_low} >= {band.rx_high}")
+        if band.tx_low <= 0 or band.rx_low <= 0:
+            warnings.append(f"Invalid frequency values for {band.code}: frequencies must be positive")
+    
+    # Check for suspicious configurations
+    for band in selected_bands:
+        tx_bw = band.tx_high - band.tx_low
+        rx_bw = band.rx_high - band.rx_low
+        if tx_bw > 1000:  # > 1 GHz
+            warnings.append(f"Very wide Tx band for {band.code}: {tx_bw:.1f} MHz")
+        if rx_bw > 1000:  # > 1 GHz
+            warnings.append(f"Very wide Rx band for {band.code}: {rx_bw:.1f} MHz")
+    
+    return warnings
