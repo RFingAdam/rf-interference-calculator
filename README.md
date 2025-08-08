@@ -4,9 +4,10 @@ A professional-grade tool for analyzing RF spectrum interference, harmonics, and
 
 ## 🚀 Features
 - **Comprehensive Band Support**: 76+ bands including 3GPP LTE 1-71, Wi-Fi 2.4G/5G/6E, Bluetooth LE, ISM, HaLow, LoRaWAN, GNSS
-- **Advanced IMD Analysis**: Exhaustive IM3, IM4, IM5, IM7 calculations with all edge cases
-- **Harmonic Products**: 2nd and 3rd harmonic analysis
-- **Risk Assessment**: Multi-level risk categorization (High/Med/Low/Minimal) with frequency proximity
+- **Professional IMD Analysis**: Complete coverage including IM2 beat terms, IM3, IM4, IM5, IM7 with all edge cases
+- **Extended Harmonic Products**: 2nd, 3rd, 4th, and 5th harmonic analysis (2H-5H)
+- **IM2 Beat Terms**: Critical f₁ ± f₂ analysis often higher than IM3 in wideband systems  
+- **Risk Assessment**: Signal-level based prioritization (2H > IM2 > 3H > IM3 > 4H > IM4 > 5H > IM5 > IM7)
 - **Smart Deduplication**: Eliminates mathematical duplicates for concise results
 - **Overlap Detection**: Real-time Tx/Rx overlap warnings and alerts
 - **Interactive Visualizations**: 4-tab chart system with frequency spectrum plots, risk analysis, band coverage, and product distribution
@@ -16,10 +17,11 @@ A professional-grade tool for analyzing RF spectrum interference, harmonics, and
 - **Modular Architecture**: Clean separation (`bands.py`, `calculator.py`, `ui.py`)
 
 ## 🔬 Analysis Types
-- **Harmonics (2H, 3H)**: 2nd and 3rd harmonic products
-- **IM3**: Third-order intermodulation with fundamental and harmonic mixing
-- **IM4**: Fourth-order intermodulation products (2f₁ + 2f₂)
-- **IM5**: Fifth-order intermodulation products (3f₁ ± 2f₂)
+- **Harmonics (2H-5H)**: 2nd, 3rd, 4th, and 5th harmonic products
+- **IM2 Beat Terms**: Critical f₁ ± f₂ beat frequencies (often higher than IM3)
+- **IM3**: Third-order intermodulation with fundamental and harmonic mixing  
+- **IM4**: Fourth-order products (2f₁ + 2f₂, 3f₁ + f₂, f₁ + 3f₂)
+- **IM5**: Fifth-order products (3f₁ ± 2f₂, 2f₁ ± 3f₂)
 - **IM7**: Seventh-order intermodulation products (4f₁ ± 3f₂)
 - **ACLR**: Adjacent Channel Leakage Ratio analysis
 
@@ -40,25 +42,30 @@ A professional-grade tool for analyzing RF spectrum interference, harmonics, and
    - Review results in interactive tables and charts
    - Export results in your preferred format
 
-## 📊 What's New in v1.3.0
-- **Enhanced Deduplication**: Eliminates mathematical duplicates for cleaner results
-- **Risk-First Sorting**: Dangerous products automatically sorted to top
-- **Advanced UI**: Multi-tab visualizations with interactive charts
-- **Configuration Validation**: Real-time warnings and recommendations
-- **Professional Export**: Enhanced Excel export with summary and configuration sheets
-- **Guard Band Presets**: Quick configuration options for common scenarios
-- **Frequency Filtering**: Limit analysis to specific frequency ranges
+## 📊 What's New in v1.4.0
+- **IM2 Beat Terms**: Added critical f₁ ± f₂ calculations essential for professional analysis
+- **Extended Harmonics**: 4th and 5th harmonic products (4H, 5H) for complete coverage
+- **Enhanced IM4/IM5**: Additional terms including 3f₁+f₂, f₁+3f₂, and 2f₁±3f₂
+- **Signal-Level Prioritization**: Results ordered by typical signal strength importance
+- **Professional RF Completeness**: Industry-standard analysis matching RF engineering practices
 
 ## 🔧 Technical Details
-- **Algorithm**: Exhaustive IMD3 edge-case analysis including harmonic mixing
-- **Performance**: Optimized calculation engine with intelligent result filtering
+- **Algorithm**: Complete professional-grade IMD analysis including IM2 beat terms and extended higher-order products
+- **Performance**: Optimized calculation engine with intelligent result filtering and signal-level prioritization  
 - **Architecture**: Modular design for maintainability and extensibility
 - **Validation**: Comprehensive input validation and error handling
+- **RF Engineering Standards**: Matches professional RF interference analysis practices
 
 ## 📈 Versioning
-Current version: **v1.3.0**
+Current version: **v1.4.0**
 - Version string located in `ui.py` (`__version__` variable)
 - Update version and add changes to [CHANGELOG.md](CHANGELOG.md) with each release
+
+## Previous Versions
+- **v1.3.0**: Enhanced deduplication, risk-first sorting, multi-tab UI, configuration validation
+- **v1.2.0**: Enhanced UI layout with improved metrics display
+- **v1.1.0**: Versioning and export consistency improvements  
+- **v1.0.0**: Initial modular release with full band set and professional UI
 
 ## Changelog
 

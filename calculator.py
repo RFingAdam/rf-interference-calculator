@@ -1,7 +1,7 @@
 from typing import List, Tuple, Dict
 from bands import Band
 
-def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4: bool = False, imd5: bool = True, imd7: bool = False, aclr_margin: float = 0.0) -> Tuple[List[Dict], List[str]]:
+def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2: bool = True, imd4: bool = False, imd5: bool = True, imd7: bool = False, aclr_margin: float = 0.0) -> Tuple[List[Dict], List[str]]:
     """
     Exhaustive IMD/harmonic/overlap logic for all selected bands, matching app.py.
     Returns (results, overlap_alerts).
@@ -41,13 +41,13 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
             if b2_has_tx and not (b2_tx_high < b1_rx_low or b2_tx_low > b1_rx_high):
                 overlap_alerts.append(f"Tx({b2.code}) overlaps Rx({b1.code})")
 
-    # Harmonics (2H, 3H) - Skip receive-only bands (tx_low = tx_high = 0)
+    # Harmonics (2H, 3H, 4H, 5H) - Skip receive-only bands (tx_low = tx_high = 0)
     for b in selected_bands:
         # Skip receive-only bands like GNSS
         if b.tx_low == 0 and b.tx_high == 0:
             continue
             
-        for order in (2, 3):
+        for order in (2, 3, 4, 5):
             for edge in [b.tx_low, b.tx_high]:
                 if edge == 0:  # Additional safety check
                     continue
@@ -66,6 +66,68 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                         Risk="⚠️" if risk else "✓",
                         Details=f"{order}th Harmonic: {order}×{edge} = {freq:.1f} MHz (Band: {b.code})",
                     ))
+
+    # IM2 Beat Terms (f₁ ± f₂) - Critical for wideband systems, often higher than IM3
+    if imd2:
+        for i in range(n):
+            b1 = selected_bands[i]
+            # Skip receive-only bands as aggressors
+            if b1.tx_low == 0 and b1.tx_high == 0:
+                continue
+                
+            for j in range(i+1, n):  # Avoid duplicates with i+1
+                b2 = selected_bands[j]
+                # Skip receive-only bands as aggressors  
+                if b2.tx_low == 0 and b2.tx_high == 0:
+                    continue
+                    
+                A_edges = [b1.tx_low, b1.tx_high]
+                B_edges = [b2.tx_low, b2.tx_high]
+                
+                for A in A_edges:
+                    if A == 0:  # Additional safety check
+                        continue
+                    for B in B_edges:
+                        if B == 0:  # Additional safety check
+                            continue
+                        
+                        # f₁ + f₂ and f₁ - f₂ (and f₂ - f₁)
+                        for sign, op_str in [(1, '+'), (-1, '-')]:
+                            freq_plus_minus = A + sign * B
+                            if freq_plus_minus > 0:  # Only positive frequencies
+                                for victim in selected_bands:
+                                    rx_low = victim.rx_low - guard
+                                    rx_high = victim.rx_high + guard
+                                    risk = rx_low <= freq_plus_minus <= rx_high
+                                    results.append(dict(
+                                        Type="IM2",
+                                        IM3_Type="Beat Frequency",
+                                        Formula=f"{b1.code}_{'low' if A==b1.tx_low else 'high'} {op_str} {b2.code}_{'low' if B==b2.tx_low else 'high'}",
+                                        Frequency_MHz=round(freq_plus_minus, 2),
+                                        Aggressors=f"{b1.code}, {b2.code}",
+                                        Victims=victim.code if risk else '',
+                                        Risk="⚠️" if risk else "✓",
+                                        Details=f"IM2 Beat: {A} {op_str} {B} = {freq_plus_minus:.1f} MHz (A={b1.code}, B={b2.code})",
+                                    ))
+                            
+                            # Also calculate B ± A to be thorough
+                            if sign == -1:  # Only for subtraction to avoid complete duplication
+                                freq_reverse = B - A
+                                if freq_reverse > 0:  # Only positive frequencies
+                                    for victim in selected_bands:
+                                        rx_low = victim.rx_low - guard
+                                        rx_high = victim.rx_high + guard
+                                        risk = rx_low <= freq_reverse <= rx_high
+                                        results.append(dict(
+                                            Type="IM2",
+                                            IM3_Type="Beat Frequency",
+                                            Formula=f"{b2.code}_{'low' if B==b2.tx_low else 'high'} - {b1.code}_{'low' if A==b1.tx_low else 'high'}",
+                                            Frequency_MHz=round(freq_reverse, 2),
+                                            Aggressors=f"{b1.code}, {b2.code}",
+                                            Victims=victim.code if risk else '',
+                                            Risk="⚠️" if risk else "✓",
+                                            Details=f"IM2 Beat: {B} - {A} = {freq_reverse:.1f} MHz (B={b2.code}, A={b1.code})",
+                                        ))
 
     # IM3 exhaustive edge cases (all band pairs, all edges)
     for i in range(n):
@@ -199,44 +261,82 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
                                 Risk="⚠️" if risk else "✓",
                                 Details=f"IM3 (2nd Harmonic of B vs 2nd Harmonic of A): 2×{B} {'+' if sign>0 else '-'} 2×{A} = {freq6:.1f} MHz (B={b2.code}, A={b1.code})",
                             ))
-            # IM4 (2f1+2f2)
+            # IM4 (2f1+2f2, 3f1+f2, f1+3f2)
             if imd4:
                 for A in A_edges:
                     for B in B_edges:
-                        freq4 = 2*A + 2*B
+                        # Standard IM4: 2f1+2f2
+                        freq4_std = 2*A + 2*B
                         for victim in selected_bands:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
-                            risk = rx_low <= freq4 <= rx_high
+                            risk = rx_low <= freq4_std <= rx_high
                             results.append(dict(
                                 Type="IM4",
                                 IM3_Type="Higher-order",
                                 Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} + 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
-                                Frequency_MHz=round(freq4, 2),
+                                Frequency_MHz=round(freq4_std, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
                                 Risk="⚠️" if risk else "✓",
-                                Details=f"IM4: 2×{A} + 2×{B} = {freq4:.1f} MHz (A={b1.code}, B={b2.code})",
+                                Details=f"IM4: 2×{A} + 2×{B} = {freq4_std:.1f} MHz (A={b1.code}, B={b2.code})",
                             ))
-            # IM5 (3f1±2f2)
-            if imd5:
-                for A in A_edges:
-                    for B in B_edges:
-                        for sign in [-1, 1]:
-                            freq5 = 3*A + sign*2*B
+                        
+                        # Extended IM4: 3f1+f2 and f1+3f2
+                        for coeff1, coeff2 in [(3, 1), (1, 3)]:
+                            freq4_ext = coeff1*A + coeff2*B
                             for victim in selected_bands:
                                 rx_low = victim.rx_low - guard
                                 rx_high = victim.rx_high + guard
-                                risk = rx_low <= freq5 <= rx_high
+                                risk = rx_low <= freq4_ext <= rx_high
+                                results.append(dict(
+                                    Type="IM4",
+                                    IM3_Type="Higher-order",
+                                    Formula=f"{coeff1}×{b1.code}_{'low' if A==b1.tx_low else 'high'} + {coeff2}×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
+                                    Frequency_MHz=round(freq4_ext, 2),
+                                    Aggressors=f"{b1.code}, {b2.code}",
+                                    Victims=victim.code if risk else '',
+                                    Risk="⚠️" if risk else "✓",
+                                    Details=f"IM4: {coeff1}×{A} + {coeff2}×{B} = {freq4_ext:.1f} MHz (A={b1.code}, B={b2.code})",
+                                ))
+            # IM5 (3f1±2f2, 2f1±3f2)
+            if imd5:
+                for A in A_edges:
+                    for B in B_edges:
+                        # Standard IM5: 3f1±2f2
+                        for sign in [-1, 1]:
+                            freq5_std = 3*A + sign*2*B
+                            for victim in selected_bands:
+                                rx_low = victim.rx_low - guard
+                                rx_high = victim.rx_high + guard
+                                risk = rx_low <= freq5_std <= rx_high
                                 results.append(dict(
                                     Type="IM5",
                                     IM3_Type="Higher-order",
                                     Formula=f"3×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
-                                    Frequency_MHz=round(freq5, 2),
+                                    Frequency_MHz=round(freq5_std, 2),
                                     Aggressors=f"{b1.code}, {b2.code}",
                                     Victims=victim.code if risk else '',
                                     Risk="⚠️" if risk else "✓",
-                                    Details=f"IM5: 3×{A} {'+' if sign>0 else '-'} 2×{B} = {freq5:.1f} MHz (A={b1.code}, B={b2.code})",
+                                    Details=f"IM5: 3×{A} {'+' if sign>0 else '-'} 2×{B} = {freq5_std:.1f} MHz (A={b1.code}, B={b2.code})",
+                                ))
+                        
+                        # Extended IM5: 2f1±3f2
+                        for sign in [-1, 1]:
+                            freq5_ext = 2*A + sign*3*B
+                            for victim in selected_bands:
+                                rx_low = victim.rx_low - guard
+                                rx_high = victim.rx_high + guard
+                                risk = rx_low <= freq5_ext <= rx_high
+                                results.append(dict(
+                                    Type="IM5",
+                                    IM3_Type="Higher-order",
+                                    Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 3×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
+                                    Frequency_MHz=round(freq5_ext, 2),
+                                    Aggressors=f"{b1.code}, {b2.code}",
+                                    Victims=victim.code if risk else '',
+                                    Risk="⚠️" if risk else "✓",
+                                    Details=f"IM5: 2×{A} {'+' if sign>0 else '-'} 3×{B} = {freq5_ext:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
             # IM7 (4f1±3f2)
             if imd7:
@@ -301,11 +401,39 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd4:
         if key not in seen:
             seen.add(key)
             deduped.append(r)
-    # Sort: risk items (Risk='⚠️') at the top, then by Type, Formula, Frequency_MHz
+    # Sort: risk items (Risk='⚠️') at the top, ordered by signal level priority, then by Type, Formula, Frequency_MHz
+    def get_signal_level_priority(r):
+        """Return priority based on typical signal level (lower number = higher signal level)"""
+        imd_type = r.get('Type', '')
+        if imd_type == '2H':
+            return 1  # 2nd harmonic - typically highest
+        elif imd_type == 'IM2':
+            return 2  # IM2 beat terms - often higher than IM3
+        elif imd_type == '3H':
+            return 3  # 3rd harmonic
+        elif imd_type == 'IM3':
+            return 4  # IM3 - most common analysis
+        elif imd_type == '4H':
+            return 5  # 4th harmonic
+        elif imd_type == 'IM4':
+            return 6  # IM4
+        elif imd_type == '5H':
+            return 7  # 5th harmonic
+        elif imd_type == 'IM5':
+            return 8  # IM5
+        elif imd_type == 'IM7':
+            return 9  # IM7 - lowest typical signal level
+        elif imd_type == 'ACLR':
+            return 10  # ACLR - different mechanism
+        else:
+            return 99  # Unknown types
+    
     def sort_key(r):
         risk = 0 if r.get('Risk') == '⚠️' else 1
+        signal_priority = get_signal_level_priority(r)
         freq = r.get('Frequency_MHz', 0)
-        return (risk, str(r.get('Type')), str(r.get('Formula')), freq)
+        return (risk, signal_priority, str(r.get('Type')), str(r.get('Formula')), freq)
+    
     deduped.sort(key=sort_key)
     return deduped, overlap_alerts
 
@@ -337,8 +465,8 @@ def evaluate(
     rx_low, rx_high = rx_band.rx_low - guard, rx_band.rx_high + guard
     rows = []
 
-    # 2H / 3H
-    for order in (2, 3):
+    # 2H / 3H / 4H / 5H
+    for order in (2, 3, 4, 5):
         low, high = tx_band.tx_low * order, tx_band.tx_high * order
         rows.append(
             dict(
@@ -350,6 +478,38 @@ def evaluate(
                 RiskLevel=risk_level(low, high, rx_low, rx_high),
             )
         )
+
+    # IM2 Beat Terms (f1 ± f2) - Critical for wideband systems
+    # Only calculate if both bands have transmission capability
+    if not (tx_band.tx_low == 0 and tx_band.tx_high == 0) and not (rx_band.tx_low == 0 and rx_band.tx_high == 0):
+        tx_edges = [tx_band.tx_low, tx_band.tx_high]
+        rx_tx_edges = [rx_band.tx_low, rx_band.tx_high]
+        
+        for f1 in tx_edges:
+            for f2 in rx_tx_edges:
+                if f1 > 0 and f2 > 0:  # Ensure positive frequencies
+                    # f1 + f2
+                    freq_sum = f1 + f2
+                    rows.append(dict(
+                        Type="IM2",
+                        Formula=f"Tx({tx_band.code}) + Tx({rx_band.code})",
+                        Freq_low=freq_sum,
+                        Freq_high=freq_sum,
+                        Risk=rx_low <= freq_sum <= rx_high,
+                        RiskLevel=risk_level(freq_sum, freq_sum, rx_low, rx_high),
+                    ))
+                    
+                    # |f1 - f2| (absolute difference)
+                    freq_diff = abs(f1 - f2)
+                    if freq_diff > 0:  # Avoid zero frequency
+                        rows.append(dict(
+                            Type="IM2",
+                            Formula=f"|Tx({tx_band.code}) - Tx({rx_band.code})|",
+                            Freq_low=freq_diff,
+                            Freq_high=freq_diff,
+                            Risk=rx_low <= freq_diff <= rx_high,
+                            RiskLevel=risk_level(freq_diff, freq_diff, rx_low, rx_high),
+                        ))
 
     # IM3: 2f1 ± f2 (use both band edges)
     edges = [

@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2025-08-08
+### Added
+- **IM2 Beat Terms (f₁ ± f₂)**: Added critical beat frequency calculations often higher in level than IM3 products
+- **HD4 and HD5 Harmonics**: Extended harmonic analysis to include 4th and 5th harmonic products (4f, 5f)
+- **Extended IM4/IM5 Terms**: Added comprehensive higher-order IMD products including 3f₁+f₂, f₁+3f₂, and 2f₁±3f₂
+- **Signal Level Based Risk Prioritization**: Results now ordered by typical signal level (2H > IM2 > 3H > IM3 > 4H > IM4 > 5H > IM5 > IM7)
+- **Professional RF Engineering Completeness**: Comprehensive IMD analysis matching industry-standard RF engineering practices
+
+### Improved
+- **Enhanced Analysis Coverage**: Now covers all critical intermodulation products for professional RF interference analysis
+- **IM2 Beat Analysis**: Enabled by default due to critical importance in wideband systems
+- **Risk Assessment**: Results prioritized by actual signal level importance rather than alphabetical order
+- **UI Enhancements**: Updated tooltips and help text to reflect extended analysis capabilities
+
 ## [1.3.0] - 2025-08-08
 ### Added
 - **Enhanced Deduplication Logic**: Implemented mathematical uniqueness detection for interference products

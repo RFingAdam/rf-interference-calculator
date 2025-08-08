@@ -1,5 +1,5 @@
 import streamlit as st
-__version__ = "1.3.0"  # Update this version string with each release
+__version__ = "1.4.0"  # Update this version string with each release
 import pandas as pd
 from bands import BANDS, Band
 from calculator import evaluate, calculate_all_products, validate_band_configuration
@@ -128,10 +128,10 @@ st.markdown("#### 🎵 Harmonic Products")
 col_h1, col_h2 = st.columns(2)
 with col_h1:
     harmonics_enabled = st.checkbox("Enable Harmonic Analysis", value=True, 
-                                   help="Calculate 2nd and 3rd harmonic products (2f, 3f)")
+                                   help="Calculate 2nd, 3rd, 4th, and 5th harmonic products (2f, 3f, 4f, 5f)")
 with col_h2:
     if harmonics_enabled:
-        st.success("2H and 3H products will be calculated")
+        st.success("2H, 3H, 4H, and 5H products will be calculated")
     else:
         st.info("Harmonic analysis disabled")
 
@@ -139,17 +139,21 @@ with col_h2:
 st.markdown("#### ⚡ Intermodulation Products")
 st.markdown("*Select which IMD products to analyze:*")
 
-col_3, col_4, col_5, col_6 = st.columns(4)
+col_2a, col_3, col_4, col_5, col_6 = st.columns(5)
+with col_2a:
+    imd2_enabled = st.checkbox("IM2 Beat Terms", value=True, help="f₁ ± f₂, critical for wideband systems")
+    if imd2_enabled:
+        st.caption("🔥 Often higher than IM3")
 with col_3:
     imd3_enabled = st.checkbox("IM3 Products", value=True, help="2f₁ ± f₂, includes all edge cases")
     if imd3_enabled:
         st.caption("✓ Fundamental & harmonic mixing")
 with col_4:
-    imd4 = st.checkbox("IM4 Products", value=False, help="2f₁ + 2f₂")
+    imd4 = st.checkbox("IM4 Products", value=False, help="2f₁ + 2f₂, 3f₁ + f₂, f₁ + 3f₂")
     if imd4:
         st.caption("⚠️ Higher order products")
 with col_5:
-    imd5 = st.checkbox("IM5 Products", value=False, help="3f₁ ± 2f₂")
+    imd5 = st.checkbox("IM5 Products", value=False, help="3f₁ ± 2f₂, 2f₁ ± 3f₂")
     if imd5:
         st.caption("⚠️ Complex mixing")
 with col_6:
@@ -158,8 +162,8 @@ with col_6:
         st.caption("⚠️ Very high order")
 
 # Analysis complexity warning
-enabled_products = sum([harmonics_enabled, imd3_enabled, imd4, imd5, imd7])
-if enabled_products > 3:
+enabled_products = sum([harmonics_enabled, imd2_enabled, imd3_enabled, imd4, imd5, imd7])
+if enabled_products > 4:
     st.warning("⚠️ High complexity analysis selected. This may generate many results.")
 elif enabled_products == 0:
     st.error("❌ No analysis products selected. Please enable at least one option.")
@@ -210,6 +214,7 @@ if st.button("🚀 Calculate Interference", type=calc_button_type, use_container
                 results_list, overlap_alerts = calculate_all_products(
                     selected_band_objs, 
                     guard=guard, 
+                    imd2=imd2_enabled,
                     imd4=imd4, 
                     imd5=imd5, 
                     imd7=imd7, 
@@ -339,7 +344,7 @@ if st.button("🚀 Calculate Interference", type=calc_button_type, use_container
                                     pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
                                     ', '.join(selected_band_ids), 
                                     f"{export_results[freq_col].min():.1f} - {export_results[freq_col].max():.1f}" if freq_col in export_results.columns else "N/A",
-                                    ', '.join([k for k, v in {'IM3': imd3_enabled, 'IM4': imd4, 'IM5': imd5, 'IM7': imd7}.items() if v])]
+                                    ', '.join([k for k, v in {'IM2': imd2_enabled, 'IM3': imd3_enabled, 'IM4': imd4, 'IM5': imd5, 'IM7': imd7}.items() if v])]
                         }
                         pd.DataFrame(summary_data).to_excel(writer, sheet_name='Analysis Summary', index=False)
                         
@@ -424,7 +429,7 @@ if st.button("🚀 Calculate Interference", type=calc_button_type, use_container
                 
                 chart = alt.Chart(results).mark_circle(size=120, opacity=0.7).encode(
                     x=alt.X(freq_col, title="Frequency (MHz)", scale=alt.Scale(nice=True)),
-                    y=alt.Y("Type:N", title="Product Type", sort=["2H", "3H", "IM3", "IM4", "IM5", "IM7", "ACLR"]),
+                    y=alt.Y("Type:N", title="Product Type", sort=["2H", "3H", "4H", "5H", "IM2", "IM3", "IM4", "IM5", "IM7", "ACLR"]),
                     color=alt.Color(
                         color_col, 
                         scale=alt.Scale(domain=["⚠️", "✓"], range=["#ff4444", "#44aa44"]),
