@@ -1,100 +1,83 @@
 # RF Spectrum Interference Calculator
 
-A professional-grade tool for analyzing RF spectrum interference, harmonics, and intermodulation products across global wireless bands.
+A professional RF tool for analyzing interference, harmonics, and intermodulation products across 70+ wireless bands.
 
-## 🚀 Features
-- **Comprehensive Band Support**: 76+ bands including 3GPP LTE 1-71, Wi-Fi 2.4G/5G/6E, Bluetooth LE, ISM, HaLow, LoRaWAN, GNSS
-- **Professional IMD Analysis**: Complete coverage including IM2 beat terms, IM3, IM4, IM5, IM7 with all edge cases
-- **Extended Harmonic Products**: 2nd, 3rd, 4th, and 5th harmonic analysis (2H-5H)
-- **IM2 Beat Terms**: Critical f₁ ± f₂ analysis often higher than IM3 in wideband systems  
-- **Risk Assessment**: Signal-level based prioritization (2H > IM2 > 3H > IM3 > 4H > IM4 > 5H > IM5 > IM7)
-- **Smart Deduplication**: Eliminates mathematical duplicates for concise results
-- **Overlap Detection**: Real-time Tx/Rx overlap warnings and alerts
-- **Interactive Visualizations**: 4-tab chart system with frequency spectrum plots, risk analysis, band coverage, and product distribution
-- **Professional Export**: CSV, Excel (multi-sheet), JSON formats with timestamped filenames
-- **Advanced Filtering**: Category-based filtering, frequency range limits, risk-based sorting
-- **Modern UI**: Streamlit interface with enhanced configuration options and presets
-- **Modular Architecture**: Clean separation (`bands.py`, `calculator.py`, `ui.py`)
+## 🚀 Key Features
+- **70+ Wireless Bands**: LTE, Wi-Fi, BLE, GNSS, ISM and more
+- **Complete IMD Analysis**: IM2, IM3, IM4, IM5, IM7 + Harmonics (2H-5H)
+- **Risk Assessment**: Automatic severity analysis with color-coded alerts
+- **Interactive Charts**: Frequency spectrum, risk analysis, band coverage
+- **Professional Export**: CSV, Excel, JSON with timestamps
+- **Real-time Analysis**: Instant interference calculations and warnings
 
-## 🔬 Analysis Types
-- **Harmonics (2H-5H)**: 2nd, 3rd, 4th, and 5th harmonic products
-- **IM2 Beat Terms**: Critical f₁ ± f₂ beat frequencies (often higher than IM3)
-- **IM3**: Third-order intermodulation with fundamental and harmonic mixing  
-- **IM4**: Fourth-order products (2f₁ + 2f₂, 3f₁ + f₂, f₁ + 3f₂)
-- **IM5**: Fifth-order products (3f₁ ± 2f₂, 2f₁ ± 3f₂)
-- **IM7**: Seventh-order intermodulation products (4f₁ ± 3f₂)
-- **ACLR**: Adjacent Channel Leakage Ratio analysis
+## 🔍 Critical Interference Examples
+
+### 1. GPS Safety Risk
+![LTE B13 → GPS L1](screenshots/lte_b13_2h_gps_l1.png)
+**LTE Band 13** (777-787 MHz) **→ GPS L1** (1575 MHz)  
+- **Product**: 2nd Harmonic @ 1574 MHz 🔴  
+- **Impact**: GPS navigation interference
+
+### 2. Wi-Fi 5G Performance  
+![LTE B4 → Wi-Fi 5G](screenshots/lte_b4_3h_wifi5g.png)
+**LTE Band 4** (1710-1755 MHz) **→ Wi-Fi 5G** (5150-5925 MHz)
+- **Product**: 3rd Harmonic @ 5265 MHz 🟠
+- **Impact**: Wi-Fi channel blocking
+
+### 3. ISM Band Conflicts
+![LTE B26 → Wi-Fi 2.4G](screenshots/lte_b26_3h_wifi24g.png) 
+**LTE Band 26** (814-849 MHz) **→ Wi-Fi 2.4G/BLE** (2400-2500 MHz)
+- **Product**: 3rd Harmonic @ 2442 MHz 🔴
+- **Impact**: BLE and Wi-Fi 2.4G interference
 
 ## 🚀 Quick Start
-1. **Install dependencies:**
-   ```bash
-   pip install streamlit pandas altair openpyxl pyperclip
-   ```
-2. **Run the application:**
-   ```bash
-   streamlit run ui.py
-   ```
-3. **Use the interface:**
-   - Select band categories in the sidebar
-   - Choose specific bands for analysis
-   - Configure guard margins and IMD products
-   - Click "Calculate Interference" to analyze
-   - Review results in interactive tables and charts
-   - Export results in your preferred format
+```bash
+# Install dependencies
+pip install streamlit pandas altair openpyxl
 
-## 📊 What's New in v1.4.0
-- **IM2 Beat Terms**: Added critical f₁ ± f₂ calculations essential for professional analysis
-- **Extended Harmonics**: 4th and 5th harmonic products (4H, 5H) for complete coverage
-- **Enhanced IM4/IM5**: Additional terms including 3f₁+f₂, f₁+3f₂, and 2f₁±3f₂
-- **Signal-Level Prioritization**: Results ordered by typical signal strength importance
-- **Professional RF Completeness**: Industry-standard analysis matching RF engineering practices
+# Run the application  
+streamlit run ui.py
+```
 
-## 🔧 Technical Details
-- **Algorithm**: Complete professional-grade IMD analysis including IM2 beat terms and extended higher-order products
-- **Performance**: Optimized calculation engine with intelligent result filtering and signal-level prioritization  
-- **Architecture**: Modular design for maintainability and extensibility
-- **Validation**: Comprehensive input validation and error handling
-- **RF Engineering Standards**: Matches professional RF interference analysis practices
+**Usage:**
+1. Select band categories and specific bands
+2. Configure guard margins and analysis products
+3. Click "Calculate Interference" 
+4. Review critical results and export data
+
+## 📊 Interactive Analysis Features
+
+![Wi-Fi 5G Analysis Charts](screenshots/lte_b4_3h_wifi5g_FrequencySpectrum.png)
+
+### Four Analysis Views:
+- **🎯 Frequency Spectrum**: Interactive scatter plot of all interference products
+- **📈 Risk Analysis**: Severity distribution and critical product identification  
+- **🔍 Band Coverage**: Visual band layout and frequency allocation
+- **⚡ Product Distribution**: Histogram of interference product frequencies
+
+## � What's New in v1.4.3
+- **Enhanced Screenshots**: Added professional example scenarios with visual documentation
+- **Simplified UI**: Streamlined interface with clearer critical risk identification
+- **Improved Charts**: Fixed Product Distribution visualization with proper risk symbol handling
+- **Professional Examples**: Real-world GPS, Wi-Fi, and BLE interference scenarios
+- **Code Quality**: Cleaned debug code, optimized imports, enhanced error handling
+
+## 🔧 Professional Use Cases
+- **Product Development**: Validate RF design choices and coexistence
+- **Regulatory Submissions**: Generate interference analysis reports  
+- **Customer Support**: Demonstrate and troubleshoot interference issues
+- **Training**: Real-world RF engineering examples and calculations
 
 ## 📈 Versioning
-Current version: **v1.4.0**
-- Version string located in `ui.py` (`__version__` variable)
-- Update version and add changes to [CHANGELOG.md](CHANGELOG.md) with each release
+Current version: **v1.4.3** - Enhanced visual documentation and simplified interface
 
-## Previous Versions
-- **v1.3.0**: Enhanced deduplication, risk-first sorting, multi-tab UI, configuration validation
-- **v1.2.0**: Enhanced UI layout with improved metrics display
-- **v1.1.0**: Versioning and export consistency improvements  
-- **v1.0.0**: Initial modular release with full band set and professional UI
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for full release history.
+Previous releases: [CHANGELOG.md](CHANGELOG.md)
 
 ## Authors
-Adam Engelbrecht
+Adam Engelbrecht (RFingAdam)
 
 ## 📄 License
-
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
-
-### What this means:
-- ✅ **Free and open source**: Anyone can use, modify, and distribute
-- ✅ **Attribution required**: Must credit Adam Engelbrecht (RFingAdam)
-- ✅ **Copyleft protection**: Derivative works must remain open source under GPL-3.0
-- ✅ **Commercial use allowed**: Companies can use and profit from this software
-- ⚠️ **Source code must be shared**: Any modifications must be made available under GPL-3.0
-- ⚠️ **Patent protection**: Contributors grant patent licenses for their contributions
-
-### Perfect for:
-- **Personal and educational use**
-- **Corporate RF engineering teams**
-- **Research institutions**
-- **Open source projects**
-- **Commercial products** (with GPL-3.0 compliance)
-
-### GPL-3.0 Benefits:
-The GPL-3.0 ensures this tool remains free and open while allowing commercial use. It protects against proprietary forks that would lock users out of improvements. If you build upon this work, you must share your enhancements with the community.
+GNU General Public License v3.0 (GPL-3.0) - Free for personal, educational, and commercial use with source sharing requirements.
 
 ---
-*This tool is provided for educational and research purposes. Users are responsible for validating results against regulatory requirements and industry standards.*
+*Professional RF interference analysis tool for engineering and regulatory compliance.*

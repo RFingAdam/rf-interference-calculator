@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.3] - 2025-08-08
+### Added
+- **Visual Documentation**: Professional screenshot examples showing critical interference scenarios
+- **Enhanced Screenshots**: Real-world GPS, Wi-Fi, and BLE interference examples with visual results
+- **Simplified README**: Streamlined documentation focused on key features users care about
+- **Interactive Examples**: Screenshot integration showing actual interference analysis results
+
+### Fixed
+- **Product Distribution Chart**: Fixed Altair chart visualization with proper risk symbol handling
+- **Risk Symbol Support**: Chart now supports both new (🔴🟠🟡🔵✅) and legacy (⚠️✓) risk symbols  
+- **Chart Conditions**: Resolved Altair syntax errors with dynamic risk condition handling
+- **Frequency Statistics**: Enhanced risk frequency calculations and display metrics
+
+### Improved  
+- **User Experience**: Simplified interface with focus on critical interference identification
+- **Visual Presentation**: Professional screenshot integration for better understanding
+- **Documentation Flow**: Cleaner README structure highlighting key capabilities and examples
+- **Chart Reliability**: All visualization tabs now working correctly with proper error handling
+
+## [1.4.2] - 2025-08-08
+### Added
+- **Professional Documentation**: Added GitHub Copilot instructions for AI-assisted development
+- **Screenshot Examples**: Created `/screenshots/` directory with real-world interference scenario documentation
+- **RF Engineering Examples**: Documented critical interference cases:
+  - LTE Band 13 2nd harmonic → GPS L1 interference (1574 MHz)
+  - LTE Band 4 3rd harmonic → Wi-Fi 5G interference (5265 MHz)  
+  - LTE Band 26 3rd harmonic → Wi-Fi 2.4G interference (2442 MHz)
+  - Multi-LTE IM3 products → BLE interference scenarios
+- **Enhanced Requirements**: Complete requirements.txt with optional development dependencies
+
+### Fixed
+- **Code Cleanup**: Removed debug comments and unused imports from ui.py
+- **Import Organization**: Cleaned up import statements and added missing tempfile import
+- **Documentation Accuracy**: Updated version references and removed outdated comments
+
+### Improved
+- **Repository Structure**: Added .github folder to gitignore for cleaner development
+- **Error Handling**: Enhanced import error handling for cloud deployments
+- **Professional Standards**: Code quality improvements following RF engineering best practices
+
+## [1.4.1] - 2025-08-08
+### Added
+- **Coexistence Test Mode**: Analyze LTE bands individually against coexistence radios (BLE, Wi-Fi) for realistic scenarios
+- **Coexistence Recommendations**: Industry-standard guidance for radio coordination
+  - BLE + Wi-Fi 2.4G → Packet Transfer Arbitration (PTA) required
+  - LTE + BLE → WCI-2 interface coordination recommended  
+  - LTE + Wi-Fi → WCI-2 interface with LAA compliance
+  - Band-specific recommendations for public safety and TDD bands
+- **Individual LTE Band Testing**: Each LTE band tested separately with coexistence radios to match real-world usage
+- **Enhanced UI for Coexistence**: Dedicated coexistence radio selection and scenario preview
+- **Test Scenario Management**: Automatic generation of LTE+coexistence test combinations
+
+### Improved
+- **Realistic Analysis**: Reflects actual deployment where only one LTE band is typically active at a time
+- **Professional Recommendations**: Industry-standard coexistence protocols and interfaces
+- **Results Organization**: Coexistence mode results show test scenarios and LTE band combinations
+- **User Experience**: Clear differentiation between standard analysis and coexistence testing modes
+
 ## [1.4.0] - 2025-08-08
 ### Added
 - **IM2 Beat Terms (f₁ ± f₂)**: Added critical beat frequency calculations often higher in level than IM3 products
@@ -52,7 +110,6 @@ All notable changes to this project will be documented in this file.
 - Ensured all table columns always present in results table
 - Added versioning to `ui.py` and README
 - Improved export and UI consistency
-- Added MIT license file
 
 ## [1.0.0] - 2025-08-07
 ### Added

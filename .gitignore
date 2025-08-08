@@ -67,6 +67,18 @@ _Archive/
 *.bak
 *.tmp
 
+# Test applications (development only)
+test_app.py
+test_na_case1.py
+test_sorting.py
+# demo_critical_scenarios.py
+# DEMO_USAGE.md
+
+# Documentation and GitHub files (development only)
+.github/
+docs/
+screenshots/
+
 # Ignore data/output
 *.csv
 *.xlsx
