@@ -12,7 +12,6 @@ Based on industry standard measurements and typical RF system performance
 import math
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
-import math
 import pandas as pd
 import numpy as np
 
