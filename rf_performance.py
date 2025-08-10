@@ -1238,7 +1238,7 @@ RF_SYSTEM_PRESETS = {
         lte_sensitivity=-102.0,          # -102 dBm LTE RX (user requirement)
         wifi_sensitivity=-82.0,          # -82 dBm Wi-Fi RX (user requirement)
         ble_sensitivity=-92.0,           # -92 dBm BLE RX (user requirement)
-        gnss_sensitivity=-147.0,         # -147 dBm GNSS RX (user requirement) ⚠️
+        gnss_sensitivity=-147.0,         # -147 dBm GNSS RX (user requirement) WARNING: check system requirements
         configuration_name="Desktop Professional",
         configuration_notes="Professional desktop system - HD levels calculated from IIP3/IIP2"
     )
