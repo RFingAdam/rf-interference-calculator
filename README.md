@@ -1,4 +1,21 @@
-# RF Spectrum Interference Calculator
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="RF Interference Calculator" width="120"/>
+</p>
+
+<h1 align="center">RF Spectrum Interference Calculator</h1>
+
+<p align="center">
+  <strong>Professional RF tool for analyzing interference, harmonics, and intermodulation products</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.x-blue.svg" alt="Python"/>
+  <img src="https://img.shields.io/badge/Streamlit-Web_App-FF4B4B.svg" alt="Streamlit"/>
+  <img src="https://img.shields.io/badge/Bands-70+-purple.svg" alt="Bands"/>
+  <img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License"/>
+</p>
+
+---
 
 A professional RF tool for analyzing interference, harmonics, and intermodulation products across 70+ wireless bands.
 
