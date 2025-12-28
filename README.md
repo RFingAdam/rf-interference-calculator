@@ -12,20 +12,65 @@
   <img src="https://img.shields.io/badge/Python-3.x-blue.svg" alt="Python"/>
   <img src="https://img.shields.io/badge/Streamlit-Web_App-FF4B4B.svg" alt="Streamlit"/>
   <img src="https://img.shields.io/badge/Bands-70+-purple.svg" alt="Bands"/>
+  <img src="https://img.shields.io/badge/Version-2.0.0-green.svg" alt="Version"/>
   <img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License"/>
 </p>
 
 ---
 
-A professional RF tool for analyzing interference, harmonics, and intermodulation products across 70+ wireless bands.
+A professional RF engineering tool for analyzing interference, harmonics, and intermodulation products across 70+ wireless bands with **comprehensive RF system performance analysis**.
+
+## 📊 What's New in v2.0.0 - Professional UI Overhaul
+- **📋 Professional Results Table**: P_TX, P_RX, Desense, Margin, and 3GPP Compliance for every product
+- **📊 Summary Dashboard**: At-a-glance severity counts with compliance metrics
+- **🔬 3GPP Compliance Report**: Expandable violation report with regulatory references
+- **⚡ Monte Carlo Analysis**: Optional worst-case analysis with P50/P95/P99 percentiles
+- **🆕 New Modules**: `regulatory_limits.py` and `isolation_matrix.py` for compliance checking
+- **✅ Code Quality**: Fixed IM3 formula, edge case guards, professional terminology
+
+## 🔧 Professional Use Cases
+- **📐 RF System Design**: Predict interference performance before hardware development
+- **🔍 Pre-hardware Validation**: Validate coexistence with quantitative analysis
+- **📋 Regulatory Analysis**: Professional interference studies with industry-standard methods
+- **🛠️ Design Optimization**: Specific engineering recommendations for isolation and filtering
+- **🎓 Engineering Training**: Standard RF calculations and professional methodology
 
 ## 🚀 Key Features
 - **70+ Wireless Bands**: LTE, Wi-Fi, BLE, GNSS, ISM and more
 - **Complete IMD Analysis**: IM2, IM3, IM4, IM5, IM7 + Harmonics (2H-5H)
+- **🔬 RF Performance Analysis**: Real signal levels, margins, and performance impact
 - **Risk Assessment**: Automatic severity analysis with color-coded alerts
 - **Interactive Charts**: Frequency spectrum, risk analysis, band coverage
 - **Professional Export**: CSV, Excel, JSON with timestamps
 - **Real-time Analysis**: Instant interference calculations and warnings
+
+## ⭐ **Professional RF Performance Analysis**
+
+Transform frequency conflicts into **actionable engineering data**:
+
+### **🎯 Professional Signal-Level Analysis**
+- **P_IM3 = 3×P_in - 2×IIP3** calculations using industry-standard formulas
+- **Real interference power levels** at victim inputs (dBm)
+- **Performance margins** vs sensitivity thresholds
+- **PER estimates** for different modulation schemes
+
+### **🛠️ System Parameter Configuration**
+Choose from professional presets or customize:
+- **📱 Mobile Device**: 20dB isolation, -12dBm IIP3, 23dBm LTE
+- **📡 IoT Gateway**: 35dB isolation, -18dBm IIP3, 20dBm LTE  
+- **🚗 Automotive**: 25dB isolation, -10dBm IIP3, 27dBm LTE
+
+### **📊 Enhanced Results**
+| Type | Freq | Aggressor→Victim | **Power** | **Margin** | **Impact** | **PER** |
+|------|------|------------------|-----------|------------|------------|---------|
+| IM3  | 2442 | LTE+BLE→WiFi    | **-42dBm** | **8dB**    | **Medium** | **5%**  |
+
+### **🎯 How to Access**
+1. Run standard interference analysis
+2. Click **"🔬 Performance Report"** button  
+3. Configure system parameters
+4. Click **"🚀 Run Performance Analysis"**
+5. Get real signal levels and optimization recommendations
 
 ## 🔍 Critical Interference Examples
 
@@ -74,11 +119,18 @@ pip install streamlit pandas altair openpyxl
 streamlit run ui.py
 ```
 
-**Usage:**
+**Basic Usage:**
 1. Select band categories and specific bands
 2. Configure guard margins and analysis products
 3. Click "Calculate Interference" 
 4. Review critical results and export data
+
+**🔬 NEW: Performance Analysis Workflow:**
+1. Complete basic interference analysis (above)
+2. Click **"🔬 Performance Report"** button
+3. Configure system parameters (presets available)
+4. Click **"🚀 Run Performance Analysis"**
+5. Get **real signal levels, margins, and optimization recommendations**
 
 ## 📊 Interactive Analysis Features
 
@@ -96,7 +148,7 @@ Each view provides different insights:
 - **Coverage view**: Shows band relationships and potential conflicts
 - **Distribution view**: Reveals interference concentration across frequency ranges
 
-## � What's New in v1.4.3
+## 🆕 What's New in v1.4.3
 - **Enhanced Screenshots**: Added professional example scenarios with visual documentation
 - **Simplified UI**: Streamlined interface with clearer critical risk identification
 - **Improved Charts**: Fixed Product Distribution visualization with proper risk symbol handling
@@ -110,7 +162,7 @@ Each view provides different insights:
 - **Training**: Real-world RF engineering examples and calculations
 
 ## 📈 Versioning
-Current version: **v1.4.3** - Enhanced visual documentation and simplified interface
+Current version: **v2.0.0** - Professional UI Overhaul with quantitative results, compliance checking, and code quality fixes
 
 Previous releases: [CHANGELOG.md](CHANGELOG.md)
 
@@ -118,7 +170,7 @@ Previous releases: [CHANGELOG.md](CHANGELOG.md)
 Adam Engelbrecht (RFingAdam)
 
 ## 📄 License
-GNU General Public License v3.0 (GPL-3.0) - Free for personal, educational, and commercial use with source sharing requirements.
+GNU Affero General Public License v3.0 (AGPL-3.0) - Free for personal, educational, and commercial use with source sharing requirements.
 
 ---
 *Professional RF interference analysis tool for engineering and regulatory compliance.*
