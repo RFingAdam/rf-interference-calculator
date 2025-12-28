@@ -65,7 +65,7 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                     
                     results.append(dict(
                         Type=f"{order}H",
-                        IM3_Type="Harmonic",
+                        Product_Subtype="Harmonic",
                         Formula=f"{order}×Tx_{'low' if edge==b.tx_low else 'high'}({b.code})",
                         Frequency_MHz=round(freq, 2),
                         Aggressors=b.code,
@@ -116,7 +116,7 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                     
                                     results.append(dict(
                                         Type="IM2",
-                                        IM3_Type="Beat Frequency",
+                                        Product_Subtype="Beat Frequency",
                                         Formula=f"{b1.code}_{'low' if A==b1.tx_low else 'high'} {op_str} {b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                         Frequency_MHz=round(freq_plus_minus, 2),
                                         Aggressors=f"{b1.code}, {b2.code}",
@@ -143,7 +143,7 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                         
                                         results.append(dict(
                                             Type="IM2",
-                                            IM3_Type="Beat Frequency",
+                                            Product_Subtype="Beat Frequency",
                                             Formula=f"{b2.code}_{'low' if B==b2.tx_low else 'high'} - {b1.code}_{'low' if A==b1.tx_low else 'high'}",
                                             Frequency_MHz=round(freq_reverse, 2),
                                             Aggressors=f"{b1.code}, {b2.code}",
@@ -192,7 +192,7 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             
                             results.append(dict(
                                 Type="IM3",
-                                IM3_Type="Fundamental-only",
+                                Product_Subtype="Fundamental-only",
                                 Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} {b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                 Frequency_MHz=round(freq1, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
@@ -218,7 +218,7 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             
                             results.append(dict(
                                 Type="IM3",
-                                IM3_Type="Fundamental-only",
+                                Product_Subtype="Fundamental-only",
                                 Formula=f"2×{b2.code}_{'low' if B==b2.tx_low else 'high'} {'+' if sign>0 else '-'} {b1.code}_{'low' if A==b1.tx_low else 'high'}",
                                 Frequency_MHz=round(freq2, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
@@ -227,7 +227,8 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                 Severity=severity,
                                 Details=f"IM3 (Fundamental-only): 2×{B} {'+' if sign>0 else '-'} {A} = {freq2:.1f} MHz (B={b2.code}, A={b1.code})",
                             ))
-            # Mixed 2nd-harmonic/fundamental (2*(2A) ± B, 2*(2B) ± A)
+            # Mixed 2nd-harmonic/fundamental (2*(2A) ± B = 4A ± B, 2*(2B) ± A = 4B ± A)
+            # Note: These are 5th-order products (4+1=5), classified as IM5
             for A in A_edges:
                 for B in B_edges:
                     for sign in [-1, 1]:
@@ -236,15 +237,23 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
                             risk = rx_low <= freq3 <= rx_high
+
+                            # Enhanced risk assessment with severity
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(freq3, victim.code, f"{b1.code}, {b2.code}", "IM5")
+                            else:
+                                risk_symbol, severity = "✅", 0
+
                             results.append(dict(
-                                Type="IM3",
-                                IM3_Type="2nd Harmonic of A vs Fundamental B",
-                                Formula=f"2×(2×{b1.code}_{'low' if A==b1.tx_low else 'high'}) {'+' if sign>0 else '-'} {b2.code}_{'low' if B==b2.tx_low else 'high'}",
+                                Type="IM5",
+                                Product_Subtype="2H×A ± B (Mixed Harmonic)",
+                                Formula=f"4×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} {b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                 Frequency_MHz=round(freq3, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
-                                Risk="⚠️" if risk else "✓",
-                                Details=f"IM3 (2nd Harmonic of A vs Fundamental B): 2×(2×{A}) {'+' if sign>0 else '-'} {B} = {freq3:.1f} MHz (A={b1.code}, B={b2.code})",
+                                Risk=risk_symbol,
+                                Severity=severity,
+                                Details=f"IM5 (2H of A vs Fundamental B): 4×{A} {'+' if sign>0 else '-'} {B} = {freq3:.1f} MHz (A={b1.code}, B={b2.code})",
                             ))
             for B in B_edges:
                 for A in A_edges:
@@ -254,17 +263,26 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
                             risk = rx_low <= freq4 <= rx_high
+
+                            # Enhanced risk assessment with severity
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(freq4, victim.code, f"{b1.code}, {b2.code}", "IM5")
+                            else:
+                                risk_symbol, severity = "✅", 0
+
                             results.append(dict(
-                                Type="IM3",
-                                IM3_Type="2nd Harmonic of B vs Fundamental A",
-                                Formula=f"2×(2×{b2.code}_{'low' if B==b2.tx_low else 'high'}) {'+' if sign>0 else '-'} {b1.code}_{'low' if A==b1.tx_low else 'high'}",
+                                Type="IM5",
+                                Product_Subtype="2H×B ± A (Mixed Harmonic)",
+                                Formula=f"4×{b2.code}_{'low' if B==b2.tx_low else 'high'} {'+' if sign>0 else '-'} {b1.code}_{'low' if A==b1.tx_low else 'high'}",
                                 Frequency_MHz=round(freq4, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
-                                Risk="⚠️" if risk else "✓",
-                                Details=f"IM3 (2nd Harmonic of B vs Fundamental A): 2×(2×{B}) {'+' if sign>0 else '-'} {A} = {freq4:.1f} MHz (B={b2.code}, A={b1.code})",
+                                Risk=risk_symbol,
+                                Severity=severity,
+                                Details=f"IM5 (2H of B vs Fundamental A): 4×{B} {'+' if sign>0 else '-'} {A} = {freq4:.1f} MHz (B={b2.code}, A={b1.code})",
                             ))
             # 2nd Harmonic of both (2A ± 2B, 2B ± 2A)
+            # Note: These are 4th-order products (2+2=4), classified as IM4
             for A in A_edges:
                 for B in B_edges:
                     for sign in [-1, 1]:
@@ -273,15 +291,23 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
                             risk = rx_low <= freq5 <= rx_high
+
+                            # Enhanced risk assessment with severity
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(freq5, victim.code, f"{b1.code}, {b2.code}", "IM4")
+                            else:
+                                risk_symbol, severity = "✅", 0
+
                             results.append(dict(
-                                Type="IM3",
-                                IM3_Type="2nd Harmonic of A vs 2nd Harmonic of B",
+                                Type="IM4",
+                                Product_Subtype="2H×A ± 2H×B (Double Harmonic)",
                                 Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                 Frequency_MHz=round(freq5, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
-                                Risk="⚠️" if risk else "✓",
-                                Details=f"IM3 (2nd Harmonic of A vs 2nd Harmonic of B): 2×{A} {'+' if sign>0 else '-'} 2×{B} = {freq5:.1f} MHz (A={b1.code}, B={b2.code})",
+                                Risk=risk_symbol,
+                                Severity=severity,
+                                Details=f"IM4 (2H of A vs 2H of B): 2×{A} {'+' if sign>0 else '-'} 2×{B} = {freq5:.1f} MHz (A={b1.code}, B={b2.code})",
                             ))
             for B in B_edges:
                 for A in A_edges:
@@ -291,17 +317,25 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
                             risk = rx_low <= freq6 <= rx_high
+
+                            # Enhanced risk assessment with severity
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(freq6, victim.code, f"{b1.code}, {b2.code}", "IM4")
+                            else:
+                                risk_symbol, severity = "✅", 0
+
                             results.append(dict(
-                                Type="IM3",
-                                IM3_Type="2nd Harmonic of B vs 2nd Harmonic of A",
+                                Type="IM4",
+                                Product_Subtype="2H×B ± 2H×A (Double Harmonic)",
                                 Formula=f"2×{b2.code}_{'low' if B==b2.tx_low else 'high'} {'+' if sign>0 else '-'} 2×{b1.code}_{'low' if A==b1.tx_low else 'high'}",
                                 Frequency_MHz=round(freq6, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
-                                Risk="⚠️" if risk else "✓",
-                                Details=f"IM3 (2nd Harmonic of B vs 2nd Harmonic of A): 2×{B} {'+' if sign>0 else '-'} 2×{A} = {freq6:.1f} MHz (B={b2.code}, A={b1.code})",
+                                Risk=risk_symbol,
+                                Severity=severity,
+                                Details=f"IM4 (2H of B vs 2H of A): 2×{B} {'+' if sign>0 else '-'} 2×{A} = {freq6:.1f} MHz (B={b2.code}, A={b1.code})",
                             ))
-            # IM4 (2f1+2f2, 3f1+f2, f1+3f2)
+            # IM4 (2f1+2f2, 3f1+f2, f1+3f2) - Standard higher-order products
             if imd4:
                 for A in A_edges:
                     for B in B_edges:
@@ -311,17 +345,25 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                             rx_low = victim.rx_low - guard
                             rx_high = victim.rx_high + guard
                             risk = rx_low <= freq4_std <= rx_high
+
+                            # Enhanced risk assessment with severity
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(freq4_std, victim.code, f"{b1.code}, {b2.code}", "IM4")
+                            else:
+                                risk_symbol, severity = "✅", 0
+
                             results.append(dict(
                                 Type="IM4",
-                                IM3_Type="Higher-order",
+                                Product_Subtype="Standard (2f₁+2f₂)",
                                 Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} + 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                 Frequency_MHz=round(freq4_std, 2),
                                 Aggressors=f"{b1.code}, {b2.code}",
                                 Victims=victim.code if risk else '',
-                                Risk="⚠️" if risk else "✓",
+                                Risk=risk_symbol,
+                                Severity=severity,
                                 Details=f"IM4: 2×{A} + 2×{B} = {freq4_std:.1f} MHz (A={b1.code}, B={b2.code})",
                             ))
-                        
+
                         # Extended IM4: 3f1+f2 and f1+3f2
                         for coeff1, coeff2 in [(3, 1), (1, 3)]:
                             freq4_ext = coeff1*A + coeff2*B
@@ -329,14 +371,22 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                 rx_low = victim.rx_low - guard
                                 rx_high = victim.rx_high + guard
                                 risk = rx_low <= freq4_ext <= rx_high
+
+                                # Enhanced risk assessment with severity
+                                if risk:
+                                    risk_symbol, severity = assess_risk_severity(freq4_ext, victim.code, f"{b1.code}, {b2.code}", "IM4")
+                                else:
+                                    risk_symbol, severity = "✅", 0
+
                                 results.append(dict(
                                     Type="IM4",
-                                    IM3_Type="Higher-order",
+                                    Product_Subtype=f"Extended ({coeff1}f₁+{coeff2}f₂)",
                                     Formula=f"{coeff1}×{b1.code}_{'low' if A==b1.tx_low else 'high'} + {coeff2}×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                     Frequency_MHz=round(freq4_ext, 2),
                                     Aggressors=f"{b1.code}, {b2.code}",
                                     Victims=victim.code if risk else '',
-                                    Risk="⚠️" if risk else "✓",
+                                    Risk=risk_symbol,
+                                    Severity=severity,
                                     Details=f"IM4: {coeff1}×{A} + {coeff2}×{B} = {freq4_ext:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
             # IM5 (3f1±2f2, 2f1±3f2)
@@ -350,17 +400,25 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                 rx_low = victim.rx_low - guard
                                 rx_high = victim.rx_high + guard
                                 risk = rx_low <= freq5_std <= rx_high
+
+                                # Enhanced risk assessment with severity
+                                if risk:
+                                    risk_symbol, severity = assess_risk_severity(freq5_std, victim.code, f"{b1.code}, {b2.code}", "IM5")
+                                else:
+                                    risk_symbol, severity = "✅", 0
+
                                 results.append(dict(
                                     Type="IM5",
-                                    IM3_Type="Higher-order",
+                                    Product_Subtype="Standard (3f₁±2f₂)",
                                     Formula=f"3×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 2×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                     Frequency_MHz=round(freq5_std, 2),
                                     Aggressors=f"{b1.code}, {b2.code}",
                                     Victims=victim.code if risk else '',
-                                    Risk="⚠️" if risk else "✓",
+                                    Risk=risk_symbol,
+                                    Severity=severity,
                                     Details=f"IM5: 3×{A} {'+' if sign>0 else '-'} 2×{B} = {freq5_std:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
-                        
+
                         # Extended IM5: 2f1±3f2
                         for sign in [-1, 1]:
                             freq5_ext = 2*A + sign*3*B
@@ -368,14 +426,22 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                 rx_low = victim.rx_low - guard
                                 rx_high = victim.rx_high + guard
                                 risk = rx_low <= freq5_ext <= rx_high
+
+                                # Enhanced risk assessment with severity
+                                if risk:
+                                    risk_symbol, severity = assess_risk_severity(freq5_ext, victim.code, f"{b1.code}, {b2.code}", "IM5")
+                                else:
+                                    risk_symbol, severity = "✅", 0
+
                                 results.append(dict(
                                     Type="IM5",
-                                    IM3_Type="Higher-order",
+                                    Product_Subtype="Extended (2f₁±3f₂)",
                                     Formula=f"2×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 3×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                     Frequency_MHz=round(freq5_ext, 2),
                                     Aggressors=f"{b1.code}, {b2.code}",
                                     Victims=victim.code if risk else '',
-                                    Risk="⚠️" if risk else "✓",
+                                    Risk=risk_symbol,
+                                    Severity=severity,
                                     Details=f"IM5: 2×{A} {'+' if sign>0 else '-'} 3×{B} = {freq5_ext:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
             # IM7 (4f1±3f2)
@@ -388,14 +454,22 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                 rx_low = victim.rx_low - guard
                                 rx_high = victim.rx_high + guard
                                 risk = rx_low <= freq7 <= rx_high
+
+                                # Enhanced risk assessment with severity
+                                if risk:
+                                    risk_symbol, severity = assess_risk_severity(freq7, victim.code, f"{b1.code}, {b2.code}", "IM7")
+                                else:
+                                    risk_symbol, severity = "✅", 0
+
                                 results.append(dict(
                                     Type="IM7",
-                                    IM3_Type="Higher-order",
+                                    Product_Subtype="Standard (4f₁±3f₂)",
                                     Formula=f"4×{b1.code}_{'low' if A==b1.tx_low else 'high'} {'+' if sign>0 else '-'} 3×{b2.code}_{'low' if B==b2.tx_low else 'high'}",
                                     Frequency_MHz=round(freq7, 2),
                                     Aggressors=f"{b1.code}, {b2.code}",
                                     Victims=victim.code if risk else '',
-                                    Risk="⚠️" if risk else "✓",
+                                    Risk=risk_symbol,
+                                    Severity=severity,
                                     Details=f"IM7: 4×{A} {'+' if sign>0 else '-'} 3×{B} = {freq7:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
     # ACLR check (optional, for all pairs)
@@ -405,21 +479,31 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
             # Skip receive-only bands for ACLR (no transmission)
             if b1.tx_low == 0 and b1.tx_high == 0:
                 continue
-                
+
             for j in range(n):
                 if i == j:
                     continue
                 b2 = selected_bands[j]
                 aclr_risk = aclr_check(b1.tx_high, b2.rx_low, aclr_margin)
+
+                # Enhanced risk assessment with severity
+                if aclr_risk:
+                    risk_symbol, severity = assess_risk_severity(b2.rx_low, b2.code, b1.code, "ACLR")
+                else:
+                    risk_symbol, severity = "✅", 0
+
+                # Show the gap distance as the frequency (more meaningful than average)
+                gap_mhz = abs(b1.tx_high - b2.rx_low)
                 results.append(dict(
                     Type="ACLR",
-                    IM3_Type="Adjacent-channel",
+                    Product_Subtype="Adjacent-channel",
                     Formula=f"{b1.code}_tx_high vs {b2.code}_rx_low",
-                    Frequency_MHz=round((b1.tx_high + b2.rx_low) / 2, 2),
+                    Frequency_MHz=round(gap_mhz, 2),
                     Aggressors=b1.code,
                     Victims=b2.code if aclr_risk else '',
-                    Risk="⚠️" if aclr_risk else "✓",
-                    Details=f"ACLR: {b1.tx_high} MHz vs {b2.rx_low} MHz (gap: {abs(b1.tx_high - b2.rx_low):.1f} MHz)",
+                    Risk=risk_symbol,
+                    Severity=severity,
+                    Details=f"ACLR: {b1.tx_high} MHz vs {b2.rx_low} MHz (gap: {gap_mhz:.1f} MHz)",
                 ))
     # Deduplicate: focus on mathematical uniqueness rather than descriptive differences
     seen = set()
@@ -446,7 +530,7 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
         aggressors = tuple(sorted(r.get('Aggressors', '').split(', '))) if r.get('Aggressors') else ()
         victims = r.get('Victims', '')
         
-        # For mathematical uniqueness, ignore descriptive IM3_Type differences
+        # For mathematical uniqueness, ignore descriptive Product_Subtype differences
         # Same frequency + same aggressors + same victims = duplicate
         key = (
             r.get('Type'),
@@ -850,3 +934,157 @@ def assess_risk_severity(frequency: float, victim_code: str, aggressors: str, pr
         risk_symbol = "✅"  # Very Low/Safe - Green check
     
     return risk_symbol, severity
+
+
+def assess_risk_severity_quantitative(
+    interference_power_dbm: float,
+    victim_sensitivity_dbm: float,
+    desensitization_db: float,
+    victim_code: str,
+    product_type: str
+) -> Tuple[str, int, str]:
+    """
+    PhD-level quantitative risk assessment based on actual power levels.
+
+    This replaces the frequency-only approach with proper RF engineering metrics:
+    - Primary driver: Desensitization (I/N method)
+    - Secondary: Margin above sensitivity
+    - Modifier: Victim criticality (GNSS gets stricter thresholds)
+
+    Args:
+        interference_power_dbm: Interference power at victim RX input (dBm)
+        victim_sensitivity_dbm: Victim receiver sensitivity (dBm)
+        desensitization_db: Calculated receiver desensitization (dB)
+        victim_code: Victim band code (e.g., 'GNSS_L1', 'WiFi_2G')
+        product_type: Interference product type (e.g., 'IM3', '2H')
+
+    Returns:
+        (risk_symbol, severity 1-5, reason_string)
+    """
+    # Calculate interference margin for additional context
+    margin_db = victim_sensitivity_dbm - interference_power_dbm
+
+    # GNSS/GPS thresholds (most sensitive receivers, safety-critical)
+    # Based on 3GPP TS 36.101 and GPS receiver performance standards
+    if 'GNSS' in victim_code.upper() or 'GPS' in victim_code.upper():
+        if desensitization_db >= 8.0:
+            return ('🔴', 5, f'GPS dead zone ({desensitization_db:.1f}dB desense, {interference_power_dbm:.0f}dBm)')
+        elif desensitization_db >= 3.0:
+            return ('🟠', 4, f'GPS acquisition degraded ({desensitization_db:.1f}dB desense)')
+        elif desensitization_db >= 1.0:
+            return ('🟡', 3, f'GPS tracking affected ({desensitization_db:.1f}dB desense)')
+        elif desensitization_db >= 0.5:
+            return ('🔵', 2, f'Minor GPS impact ({desensitization_db:.1f}dB desense)')
+        else:
+            return ('✅', 1, f'Negligible ({desensitization_db:.2f}dB)')
+
+    # Public Safety bands (FirstNet, LTE B13/B14)
+    elif any(ps in victim_code.upper() for ps in ['B13', 'B14', 'FIRSTNET', 'PUBLIC']):
+        if desensitization_db >= 6.0:
+            return ('🔴', 5, f'Public safety critical ({desensitization_db:.1f}dB desense)')
+        elif desensitization_db >= 3.0:
+            return ('🟠', 4, f'Public safety degraded ({desensitization_db:.1f}dB desense)')
+        elif desensitization_db >= 1.0:
+            return ('🟡', 3, f'Public safety impacted ({desensitization_db:.1f}dB desense)')
+        elif desensitization_db >= 0.5:
+            return ('🔵', 2, f'Minor public safety impact ({desensitization_db:.1f}dB)')
+        else:
+            return ('✅', 1, f'Negligible ({desensitization_db:.2f}dB)')
+
+    # Standard wireless technologies (WiFi, LTE, BLE, etc.)
+    else:
+        if desensitization_db >= 12.0:
+            return ('🔴', 5, f'Receiver saturation ({desensitization_db:.1f}dB desense, {interference_power_dbm:.0f}dBm)')
+        elif desensitization_db >= 6.0:
+            return ('🟠', 4, f'Significant degradation ({desensitization_db:.1f}dB desense)')
+        elif desensitization_db >= 3.0:
+            return ('🟡', 3, f'Performance loss ({desensitization_db:.1f}dB desense)')
+        elif desensitization_db >= 1.0:
+            return ('🔵', 2, f'Minor degradation ({desensitization_db:.1f}dB desense)')
+        else:
+            return ('✅', 1, f'Negligible ({desensitization_db:.2f}dB)')
+
+
+def calculate_desensitization(
+    interference_power_dbm: float,
+    noise_floor_dbm: float
+) -> float:
+    """
+    Calculate receiver desensitization using standard I/N method.
+
+    Formula: Desens_dB = 10 × log₁₀(1 + I/N)
+
+    Where:
+    - I = Interference power (linear)
+    - N = Noise floor power (linear)
+
+    Args:
+        interference_power_dbm: Interference power at victim input (dBm)
+        noise_floor_dbm: Receiver noise floor (dBm)
+
+    Returns:
+        Desensitization in dB (increase in effective noise floor)
+    """
+    import math
+
+    if interference_power_dbm <= noise_floor_dbm - 20:
+        # Interference > 20 dB below noise floor = negligible
+        return 0.0
+
+    # I/N ratio in linear terms
+    i_over_n_linear = 10 ** ((interference_power_dbm - noise_floor_dbm) / 10.0)
+
+    # Standard desensitization formula
+    desensitization_db = 10 * math.log10(1 + i_over_n_linear)
+
+    return desensitization_db
+
+
+def get_victim_noise_floor(victim_code: str, bandwidth_hz: float = None) -> float:
+    """
+    Get estimated noise floor for different receiver types.
+
+    Noise floor = kTB + NF = -174 dBm/Hz + 10*log10(BW) + NF
+
+    Args:
+        victim_code: Victim band code
+        bandwidth_hz: Optional bandwidth override
+
+    Returns:
+        Estimated noise floor in dBm
+    """
+    import math
+
+    # Technology-specific defaults
+    # Format: (bandwidth_hz, noise_figure_db)
+    tech_params = {
+        'GNSS': (2e6, 2.0),     # 2 MHz, 2 dB NF (GPS front-end)
+        'GPS': (2e6, 2.0),
+        'LTE': (10e6, 6.0),    # 10 MHz, 6 dB NF
+        'WIFI': (20e6, 6.0),   # 20 MHz, 6 dB NF
+        'WI-FI': (20e6, 6.0),
+        'BLE': (1e6, 8.0),     # 1 MHz, 8 dB NF
+        'BLUETOOTH': (1e6, 8.0),
+        'HALOW': (1e6, 7.0),   # 1 MHz, 7 dB NF
+        'LORA': (125e3, 6.0),  # 125 kHz, 6 dB NF
+        'ZIGBEE': (2e6, 8.0),  # 2 MHz, 8 dB NF
+    }
+
+    # Find matching technology
+    bw_hz = 10e6  # Default 10 MHz
+    nf_db = 6.0   # Default 6 dB NF
+
+    for tech, (default_bw, default_nf) in tech_params.items():
+        if tech in victim_code.upper():
+            bw_hz = default_bw
+            nf_db = default_nf
+            break
+
+    if bandwidth_hz is not None:
+        bw_hz = bandwidth_hz
+
+    # Calculate noise floor: -174 + 10*log10(BW) + NF
+    thermal_noise = -174.0 + 10 * math.log10(bw_hz)
+    noise_floor = thermal_noise + nf_db
+
+    return noise_floor

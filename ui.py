@@ -4,17 +4,20 @@ import altair as alt
 import traceback
 from bands import BANDS, Band
 from calculator import calculate_all_products, assess_risk_severity
-import altair as alt
 from io import BytesIO
 
 # RF Performance Analysis imports
 try:
     from rf_performance import (
-        analyze_interference_quantitative, 
+        analyze_interference_quantitative,
         create_quantitative_summary,
         RF_SYSTEM_PRESETS,
         SystemParameters,
-        calculate_system_harmonic_levels
+        calculate_system_harmonic_levels,
+        monte_carlo_interference_analysis,
+        generate_monte_carlo_report,
+        ToleranceParameters,
+        calculate_interference_at_victim_quantitative
     )
     import plotly.graph_objects as go
     import plotly.express as px
@@ -24,6 +27,31 @@ except ImportError:
     RF_PERFORMANCE_AVAILABLE = False
     st.warning("⚠️ RF Performance module not available. Basic analysis only.")
 
+# Regulatory compliance imports
+try:
+    from regulatory_limits import (
+        check_emission_compliance,
+        generate_compliance_report,
+        get_emission_limit_for_frequency,
+        get_critical_frequency_pairs
+    )
+    REGULATORY_AVAILABLE = True
+except ImportError:
+    REGULATORY_AVAILABLE = False
+
+# Isolation matrix imports
+try:
+    from isolation_matrix import (
+        get_required_isolation,
+        get_recommended_isolation,
+        check_isolation_compliance,
+        get_isolation_recommendation,
+        get_all_critical_pairs
+    )
+    ISOLATION_MATRIX_AVAILABLE = True
+except ImportError:
+    ISOLATION_MATRIX_AVAILABLE = False
+
 # Optional imports
 try:
     import pyperclip
@@ -31,7 +59,7 @@ try:
 except ImportError:
     PYPERCLIP_AVAILABLE = False
 
-__version__ = "1.8.0"  # Professional RF Analysis - Production Ready
+__version__ = "2.0.0"  # Professional UI Overhaul - dBm/dBc/Compliance Integration
 
 # Professional RF Engineering Validation
 MATHEMATICAL_VALIDATION = {
@@ -265,7 +293,7 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
                       "<i>Based on RF Insights theory:</i><br>" +
                       "V₀ = a₁V + a₂V² + a₃V³ + a₄V⁴ + a₅V⁵<br>" +
                       "<br>" +
-                      "� <b>Band Center Tones</b>:<br>" +
+                      "📍 <b>Band Center Tones</b>:<br>" +
                       "• Even-order → ACLR zone<br>" +
                       "• IM3/IM5 close-in → In-band EVM<br>" +
                       "• Some IM4 → In-band impact<br>" +
@@ -274,7 +302,7 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
                       "• Spread-out distortion patterns<br>" +
                       "• Mix of in-band and ACLR effects<br>" +
                       "<br>" +
-                      "�🔸 <b>BBHD/Harmonics</b>: nH = aₙVⁿ<br>" +
+                      "🔸 <b>BBHD/Harmonics</b>: nH = aₙVⁿ<br>" +
                       "🔸 <b>IM2</b>: Beat/envelope (ACLR critical)<br>" +
                       "🔸 <b>IM3</b>: Close-in mixing (EVM critical)<br>" +
                       "🔸 <b>IM4+</b>: Mixed in-band/ACLR products"
@@ -322,6 +350,122 @@ def highlight_risks(row):
     risk = row.get('Risk', '✅')
     style = risk_colors.get(risk, '')
     return [style] * len(row)
+
+
+def enhance_results_with_quantitative(results_df: pd.DataFrame,
+                                       quantitative_results: list,
+                                       rf_params,
+                                       band_objects: list) -> pd.DataFrame:
+    """
+    Enhance results DataFrame with quantitative columns (dBm, dBc, compliance).
+
+    Adds columns: P_product, P_victim, Desense, Margin, Compliance
+    """
+    if results_df.empty or not quantitative_results:
+        return results_df
+
+    # Create lookup from quantitative results
+    quant_lookup = {}
+    for qr in quantitative_results:
+        key = (round(qr.frequency_mhz, 1), qr.product_type)
+        quant_lookup[key] = qr
+
+    # Add new columns
+    p_product_list = []
+    p_victim_list = []
+    desense_list = []
+    margin_list = []
+    compliance_list = []
+    severity_reason_list = []
+
+    for _, row in results_df.iterrows():
+        freq = round(row.get('Frequency', row.get('Frequency_MHz', 0)), 1)
+        ptype = row.get('Type', '')
+        key = (freq, ptype)
+
+        if key in quant_lookup:
+            qr = quant_lookup[key]
+            p_product_list.append(f"{qr.interference_at_tx_dbm:.1f}")
+            p_victim_list.append(f"{qr.interference_at_victim_dbm:.1f}")
+            desense_list.append(f"{qr.desensitization_db:.1f}")
+            margin_list.append(f"{qr.interference_margin_db:+.1f}")
+
+            # Check compliance if regulatory module available
+            if REGULATORY_AVAILABLE:
+                aggressor = row.get('Aggressors', '')
+                compliant, reason, _ = check_emission_compliance(
+                    aggressor, freq, qr.interference_at_tx_dbm
+                )
+                compliance_list.append("✓" if compliant else "✗")
+            else:
+                compliance_list.append("-")
+
+            # Create severity reason based on quantitative data
+            if qr.desensitization_db >= 8.0:
+                severity_reason_list.append(f"Critical ({qr.desensitization_db:.1f}dB desense)")
+            elif qr.desensitization_db >= 3.0:
+                severity_reason_list.append(f"High ({qr.desensitization_db:.1f}dB)")
+            elif qr.desensitization_db >= 1.0:
+                severity_reason_list.append(f"Medium ({qr.desensitization_db:.1f}dB)")
+            else:
+                severity_reason_list.append("Low")
+        else:
+            p_product_list.append("-")
+            p_victim_list.append("-")
+            desense_list.append("-")
+            margin_list.append("-")
+            compliance_list.append("-")
+            severity_reason_list.append("-")
+
+    # Add columns to DataFrame
+    enhanced_df = results_df.copy()
+    enhanced_df['P_TX (dBm)'] = p_product_list
+    enhanced_df['P_RX (dBm)'] = p_victim_list
+    enhanced_df['Desense (dB)'] = desense_list
+    enhanced_df['Margin (dB)'] = margin_list
+    enhanced_df['Compliance'] = compliance_list
+
+    return enhanced_df
+
+
+def create_compliance_summary(results_df: pd.DataFrame,
+                               quantitative_results: list,
+                               band_objects: list) -> dict:
+    """
+    Create compliance summary for dashboard.
+
+    Returns dict with violation_count, isolation_issues, critical_pairs
+    """
+    summary = {
+        'emission_violations': 0,
+        'isolation_issues': 0,
+        'critical_pairs': [],
+        'total_checked': 0
+    }
+
+    if not REGULATORY_AVAILABLE or not quantitative_results:
+        return summary
+
+    for qr in quantitative_results:
+        if qr.victims:
+            summary['total_checked'] += 1
+            aggressor = qr.aggressors[0] if qr.aggressors else ''
+
+            # Check emission compliance
+            compliant, reason, margin = check_emission_compliance(
+                aggressor, qr.frequency_mhz, qr.interference_at_tx_dbm
+            )
+            if not compliant:
+                summary['emission_violations'] += 1
+                summary['critical_pairs'].append({
+                    'aggressor': aggressor,
+                    'victim': qr.victims[0] if qr.victims else '',
+                    'frequency': qr.frequency_mhz,
+                    'reason': reason,
+                    'margin': margin
+                })
+
+    return summary
 
 # Streamlit Configuration
 st.set_page_config(
@@ -1206,7 +1350,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                     results = results.drop(col, axis=1)
             
             # Ensure proper column order to match original format
-            base_columns = ['Type', 'IM3_Type', 'Formula', 'Frequency_MHz', 'Aggressors', 'Victims', 'Risk', 'Details']
+            base_columns = ['Type', 'Product_Subtype', 'Formula', 'Frequency_MHz', 'Aggressors', 'Victims', 'Risk', 'Details']
             
             # Add auto-coexistence columns if present
             optional_columns = []
@@ -1354,187 +1498,361 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
             else:
                 results = results.head(max_results)
             
-            # Display Results
-            st.subheader(f"📊 Analysis Results ({len(full_results)} total, showing {len(results)})")
-            
-            # Summary metrics (based on full results)
-            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-            with metric_col1:
-                critical_count = len(full_results[full_results['Risk'].isin(['🔴', '🟠'])])
-                st.metric("Critical Issues", critical_count)
-            with metric_col2:
-                medium_count = len(full_results[full_results['Risk'] == '🟡'])
-                st.metric("Medium Risk", medium_count)
-            with metric_col3:
-                safe_count = len(full_results[full_results['Risk'].isin(['✅', '🔵'])])
-                st.metric("Low/Safe", safe_count)
-            with metric_col4:
-                if 'Frequency' in full_results.columns and not full_results.empty:
-                    freq_range = f"{full_results['Frequency'].min():.0f} - {full_results['Frequency'].max():.0f} MHz"
-                    st.metric("Frequency Range", freq_range)
-            
-            # Results table with highlighting
-            styled_df = results.style.apply(highlight_risks, axis=1)
-            st.dataframe(styled_df, use_container_width=True, height=400)
-            
-            # Quantitative RF Analysis Section
+            # =========================================================================
+            # v2.0.0 PROFESSIONAL RESULTS DISPLAY
+            # =========================================================================
+
+            # Run quantitative analysis FIRST (before display)
+            quantitative_results = []
+            compliance_summary = {'emission_violations': 0, 'total_checked': 0, 'critical_pairs': []}
+
             if RF_PERFORMANCE_AVAILABLE and st.session_state.get('rf_params'):
-                st.markdown("---")
-                st.subheader("🔬 Quantitative RF Analysis")
-                
-                # Methodology details in expandable section
-                with st.expander("📖 Professional RF Analysis Methodology"):
-                    method_col1, method_col2 = st.columns(2)
-                    with method_col1:
-                        st.markdown("""
-                        **🎯 Enhanced Calculations (v1.7.2):**
-                        • **Realistic Thresholds**: GNSS critical at 8 dB, others at 12 dB
-                        • **Smart Scaling**: Interference excess scaled by technology type
-                        • **I/N Methodology**: Standard interference-to-noise ratio analysis
-                        • **Professional Limits**: Engineering-validated maximum values
-                        
-                        **🔧 Harmonic Suppression Improvements:**
-                        • **Realistic TX Filtering**: Reduced excessive suppression
-                        • **Frequency-Dependent**: 2H: base, 3H: +3dB, 4H: +6dB, 5H: +10dB
-                        • **Antenna Isolation**: Capped at 10 dB max improvement
-                        • **RX Filtering**: Applied realistic out-of-band rejection
-                        """)
-                    with method_col2:
-                        st.markdown("""
-                        **📡 Industry-Standard Coexistence Filtering:**
-                        • **PTA**: BLE↔Wi-Fi 2.4G coordination in ISM band only
-                        • **WCI-2**: LTE↔Wi-Fi coordination (GNSS interference preserved)
-                        • **LBT**: LoRaWAN interference avoidance (frequency hopping)
-                        • **CCA**: Wi-Fi CSMA/CA collision avoidance mechanism
-                        • **TDMA**: Bluetooth classic time-division multiple access
-                        
-                        **✅ Result**: Industry-validated interference predictions
-                        """)
-                
-                # Get RF parameters
                 rf_params = st.session_state['rf_params']
-                
-                # Convert results to list format for RF analysis
                 rf_results_list = full_results.to_dict('records') if not full_results.empty else []
-                
+
                 if rf_results_list and selected_band_objs:
                     try:
-                        # Fix data format for RF analysis (convert Frequency -> Frequency_MHz)
+                        # Fix data format for RF analysis
                         for result in rf_results_list:
                             if 'Frequency' in result and 'Frequency_MHz' not in result:
                                 result['Frequency_MHz'] = result['Frequency']
-                        
+
                         # Perform quantitative analysis
                         quantitative_results = analyze_interference_quantitative(
                             rf_results_list, selected_band_objs, rf_params
                         )
-                        
-                        # Debug: Show what quantitative analysis returned
-                        if len(quantitative_results) > 0:
-                            st.success(f"✅ Generated {len(quantitative_results)} quantitative interference results")
-                        
+
+                        # Enhance results DataFrame with quantitative columns
                         if quantitative_results:
-                            # Create comprehensive summary
-                            quant_df = create_quantitative_summary(quantitative_results)
-                            
-                            # Show quantitative metrics
-                            quant_col1, quant_col2, quant_col3, quant_col4 = st.columns(4)
-                            
-                            with quant_col1:
-                                avg_interference = np.mean([r.interference_at_victim_dbm for r in quantitative_results])
-                                st.metric("Avg Interference", f"{avg_interference:.1f} dBm")
-                            
-                            with quant_col2:
-                                max_desense = max([r.desensitization_db for r in quantitative_results])
-                                st.metric("Max Desensitization", f"{max_desense:.2f} dB", 
-                                        help=f"Realistic range: 0-60 dB. Fixed calculation method.")
-                            
-                            with quant_col3:
-                                critical_interf = len([r for r in quantitative_results if r.risk_level in ['Critical', 'High']])
-                                st.metric("Critical Interference", critical_interf)
-                                
-                            with quant_col4:
-                                min_margin = min([r.interference_margin_db for r in quantitative_results])
-                                margin_help = "Positive = safe margin, Negative = interference above sensitivity"
-                                st.metric("Min Margin", f"{min_margin:+.1f} dB", help=margin_help)
-                            
-                            # Display quantitative results table
-                            st.markdown("**📊 Quantitative Analysis Results**")
-                            st.dataframe(quant_df, use_container_width=True, height=300)
-                            
-                            # Professional RF spectrum visualization
-                            st.markdown("**📈 RF Spectrum Analysis**")
-                            
-                            # Create spectrum chart
-                            fig = create_rf_spectrum_chart(quantitative_results, rf_params)
-                            if fig:
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                                # Chart interpretation in expandable section
-                                with st.expander("📊 How to Read This Chart"):
-                                    chart_col1, chart_col2 = st.columns(2)
-                                    with chart_col1:
-                                        st.markdown("""
-                                        **📊 Chart Elements:**
-                                        - **Green bars**: Fundamental signals (0 dBc reference)
-                                        - **Yellow products**: 2nd order dominant (IM2, 2H)
-                                        - **Orange products**: 3rd order dominant (IM3, 3H)
-                                        - **Blue products**: 4th order dominant (IM4, 4H)
-                                        - **Red products**: 5th order dominant (IM5, 5H)
-                                        """)
-                                    with chart_col2:
-                                        st.markdown("""
-                                        **📈 Interpretation:**
-                                        - **Height** = interference level in dBc relative to fundamental
-                                        - **Hover** for details: formulas, coefficients, risk assessment
-                                        - **Professional accuracy** with 5th-order polynomial expansion
-                                        """)
-                            else:
-                                st.warning("⚠️ Could not generate spectrum chart")
-                                
-                            # Additional analysis charts
-                            chart_col1, chart_col2 = st.columns(2)
-                            
-                            with chart_col1:
-                                # Risk distribution
-                                risk_dist = pd.DataFrame([{'Risk': r.risk_level, 'Count': 1} for r in quantitative_results])
-                                if not risk_dist.empty:
-                                    risk_counts = risk_dist.groupby('Risk').count().reset_index()
-                                    fig_risk = px.pie(risk_counts, values='Count', names='Risk', 
-                                                    title="Risk Distribution",
-                                                    color_discrete_map={
-                                                        'Critical': '#c62828',
-                                                        'High': '#ef6c00', 
-                                                        'Medium': '#f57f17',
-                                                        'Low': '#1565c0',
-                                                        'Negligible': '#2e7d32'
-                                                    })
-                                    st.plotly_chart(fig_risk, use_container_width=True)
-                            
-                            with chart_col2:
-                                # Desensitization levels
-                                desense_data = pd.DataFrame([{
-                                    'Product': r.product_type,
-                                    'Desensitization_dB': r.desensitization_db,
-                                    'Frequency_MHz': r.frequency_mhz
-                                } for r in quantitative_results])
-                                
-                                if not desense_data.empty:
-                                    fig_desense = px.scatter(desense_data, x='Frequency_MHz', y='Desensitization_dB',
-                                                           color='Product', title="Desensitization vs Frequency",
-                                                           labels={'Desensitization_dB': 'Desensitization (dB)',
-                                                                  'Frequency_MHz': 'Frequency (MHz)'})
-                                    st.plotly_chart(fig_desense, use_container_width=True)
-                        
-                        else:
-                            st.info("📊 No quantitative results available for current selection")
-                            
+                            results = enhance_results_with_quantitative(
+                                results, quantitative_results, rf_params, selected_band_objs
+                            )
+                            full_results = enhance_results_with_quantitative(
+                                full_results, quantitative_results, rf_params, selected_band_objs
+                            )
+
+                            # Create compliance summary
+                            compliance_summary = create_compliance_summary(
+                                full_results, quantitative_results, selected_band_objs
+                            )
                     except Exception as e:
-                        st.error(f"❌ Error in quantitative analysis: {str(e)}")
+                        st.warning(f"⚠️ Quantitative analysis error: {e}")
+
+            # Display Results Header
+            st.subheader(f"📊 Professional Analysis Results ({len(full_results)} total, showing {len(results)})")
+
+            # =========================================================================
+            # ENHANCED SUMMARY DASHBOARD
+            # =========================================================================
+            st.markdown("#### 📈 Analysis Summary")
+
+            # Row 1: Severity counts
+            metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
+            with metric_col1:
+                critical_count = len(full_results[full_results['Risk'] == '🔴'])
+                st.metric("🔴 Critical", critical_count)
+            with metric_col2:
+                high_count = len(full_results[full_results['Risk'] == '🟠'])
+                st.metric("🟠 High", high_count)
+            with metric_col3:
+                medium_count = len(full_results[full_results['Risk'] == '🟡'])
+                st.metric("🟡 Medium", medium_count)
+            with metric_col4:
+                low_count = len(full_results[full_results['Risk'] == '🔵'])
+                st.metric("🔵 Low", low_count)
+            with metric_col5:
+                safe_count = len(full_results[full_results['Risk'] == '✅'])
+                st.metric("✅ Safe", safe_count)
+
+            # Row 2: Compliance and quantitative metrics
+            if quantitative_results:
+                comp_col1, comp_col2, comp_col3, comp_col4 = st.columns(4)
+                with comp_col1:
+                    if REGULATORY_AVAILABLE:
+                        violations = compliance_summary.get('emission_violations', 0)
+                        if violations > 0:
+                            st.metric("3GPP Compliance", f"✗ {violations} Violations",
+                                     delta=f"-{violations}", delta_color="inverse")
+                        else:
+                            st.metric("3GPP Compliance", "✓ PASS")
+                    else:
+                        st.metric("3GPP Compliance", "N/A")
+
+                with comp_col2:
+                    if quantitative_results:
+                        avg_desense = np.mean([r.desensitization_db for r in quantitative_results])
+                        st.metric("Avg Desense", f"{avg_desense:.1f} dB")
+                    else:
+                        st.metric("Avg Desense", "N/A")
+
+                with comp_col3:
+                    if quantitative_results:
+                        max_desense = max([r.desensitization_db for r in quantitative_results])
+                        st.metric("Max Desense", f"{max_desense:.1f} dB")
+                    else:
+                        st.metric("Max Desense", "N/A")
+
+                with comp_col4:
+                    if quantitative_results:
+                        min_margin = min([r.interference_margin_db for r in quantitative_results])
+                        st.metric("Min Margin", f"{min_margin:+.1f} dB",
+                                 help="Positive = safe, Negative = interference above sensitivity")
+                    else:
+                        st.metric("Min Margin", "N/A",
+                                 help="Positive = safe, Negative = interference above sensitivity")
+
+            st.markdown("---")
+
+            # =========================================================================
+            # PROFESSIONAL RESULTS TABLE
+            # =========================================================================
+
+            # Select columns for display
+            display_columns = ['Type', 'Frequency', 'Aggressors', 'Victims', 'Risk']
+            if 'P_TX (dBm)' in results.columns:
+                display_columns.extend(['P_TX (dBm)', 'P_RX (dBm)', 'Desense (dB)', 'Margin (dB)', 'Compliance'])
+
+            # Filter to available columns
+            display_columns = [c for c in display_columns if c in results.columns]
+            display_df = results[display_columns]
+
+            # Results table with highlighting
+            styled_df = display_df.style.apply(highlight_risks, axis=1)
+            st.dataframe(styled_df, use_container_width=True, height=400)
+
+            # =========================================================================
+            # COMPLIANCE REPORT SECTION
+            # =========================================================================
+            if REGULATORY_AVAILABLE and quantitative_results:
+                with st.expander("📋 3GPP/FCC Compliance Report", expanded=False):
+                    st.markdown("#### Regulatory Compliance Analysis")
+
+                    if compliance_summary.get('emission_violations', 0) > 0:
+                        st.error(f"⚠️ **{compliance_summary['emission_violations']} Regulatory Violation(s) Detected**")
+
+                        # Violations table
+                        violation_data = []
+                        for pair in compliance_summary.get('critical_pairs', []):
+                            violation_data.append({
+                                'Aggressor': pair['aggressor'],
+                                'Victim': pair['victim'],
+                                'Frequency (MHz)': f"{pair['frequency']:.1f}",
+                                'Issue': pair['reason'],
+                                'Margin (dB)': f"{pair['margin']:.1f}"
+                            })
+                        if violation_data:
+                            st.dataframe(pd.DataFrame(violation_data), use_container_width=True)
+                    else:
+                        st.success("✅ **All emissions within regulatory limits**")
+
+                    # Isolation requirements (if module available)
+                    if ISOLATION_MATRIX_AVAILABLE:
+                        st.markdown("---")
+                        st.markdown("#### 🔧 Critical Isolation Requirements")
+
+                        critical_pairs = get_all_critical_pairs()
+                        if critical_pairs:
+                            iso_data = []
+                            for pair in critical_pairs[:10]:  # Top 10
+                                iso_data.append({
+                                    'Aggressor': pair['aggressor'],
+                                    'Victim': pair['victim'],
+                                    'Min Isolation (dB)': f"{pair['min_isolation_db']:.0f}",
+                                    'Product Types': ', '.join(pair['product_types']),
+                                    'Notes': pair['notes'][:50] + '...' if len(pair['notes']) > 50 else pair['notes']
+                                })
+                            st.dataframe(pd.DataFrame(iso_data), use_container_width=True)
+
+            # =========================================================================
+            # MONTE CARLO ANALYSIS (Optional)
+            # =========================================================================
+            if RF_PERFORMANCE_AVAILABLE and quantitative_results:
+                st.markdown("---")
+                with st.expander("⚡ Advanced: Monte Carlo Worst-Case Analysis", expanded=False):
+                    st.markdown("""
+                    **Monte Carlo Simulation** - Analyze worst-case interference with manufacturing
+                    and temperature tolerances (±1dB TX power, ±2dB IIP3, ±3dB isolation, -40°C to +85°C).
+                    """)
+
+                    mc_col1, mc_col2 = st.columns([3, 1])
+                    with mc_col1:
+                        n_iterations = st.slider("Iterations", 100, 5000, 1000, 100)
+                    with mc_col2:
+                        run_monte_carlo = st.button("🎲 Run Monte Carlo", type="primary")
+
+                    if run_monte_carlo:
+                        with st.spinner(f"Running {n_iterations} Monte Carlo iterations..."):
+                            try:
+                                rf_params = st.session_state['rf_params']
+                                tolerances = ToleranceParameters()
+
+                                mc_results = monte_carlo_interference_analysis(
+                                    base_params=rf_params,
+                                    tolerances=tolerances,
+                                    interference_products=full_results.to_dict('records'),
+                                    band_objects=selected_band_objs,
+                                    n_iterations=n_iterations
+                                )
+
+                                if mc_results:
+                                    st.success("✅ Monte Carlo analysis complete")
+
+                                    mc_metric1, mc_metric2, mc_metric3, mc_metric4 = st.columns(4)
+                                    with mc_metric1:
+                                        st.metric("P50 (Typical)", f"{mc_results['p50_desense']:.1f} dB")
+                                    with mc_metric2:
+                                        st.metric("P95 (Worst Case)", f"{mc_results['p95_desense']:.1f} dB",
+                                                 delta=f"+{mc_results['p95_desense']-mc_results['p50_desense']:.1f}")
+                                    with mc_metric3:
+                                        st.metric("P99 (Extreme)", f"{mc_results['p99_desense']:.1f} dB")
+                                    with mc_metric4:
+                                        st.metric("Max Observed", f"{mc_results['max_desense']:.1f} dB")
+
+                                    # Show worst-case conditions
+                                    if 'worst_conditions' in mc_results:
+                                        st.markdown("**Worst-Case Conditions:**")
+                                        st.json(mc_results['worst_conditions'])
+
+                            except Exception as e:
+                                st.error(f"Monte Carlo analysis failed: {e}")
+
+            # =========================================================================
+            # LEGACY QUANTITATIVE SECTION (Keep for backwards compatibility)
+            # =========================================================================
+            if RF_PERFORMANCE_AVAILABLE and st.session_state.get('rf_params') and quantitative_results:
+                st.markdown("---")
+                with st.expander("📖 Professional RF Analysis Methodology", expanded=False):
+                    method_col1, method_col2 = st.columns(2)
+                    with method_col1:
+                        st.markdown("""
+                        **🎯 v2.0.0 Professional Calculations:**
+                        • **Quantitative Power Levels**: All results show dBm/dBc values
+                        • **3GPP Compliance**: Automatic limit checking (TS 36.101/38.101)
+                        • **I/N Methodology**: Standard interference-to-noise ratio analysis
+                        • **Desensitization**: Actual receiver impact in dB
+
+                        **🔧 Harmonic/IMD Calculations:**
+                        • **HD Formulas**: Polynomial coefficient-based (HD4 = HD2-30dB)
+                        • **IMD Formulas**: P_IM3 = 3×P_in - 2×IIP3 (standard two-tone)
+                        • **Coupling-Aware Isolation**: Realistic multi-path model
+                        """)
+                    with method_col2:
+                        st.markdown("""
+                        **📡 Coexistence Features:**
+                        • **PTA**: BLE↔Wi-Fi 2.4G coordination
+                        • **WCI-2**: LTE↔Wi-Fi coordination
+                        • **Duty Cycle Correction**: TDM/intermittent interference
+                        • **Filter Rejection**: Receiver selectivity modeling
+
+                        **📋 New in v2.0.0:**
+                        • Professional results table with dBm columns
+                        • Compliance dashboard with 3GPP status
+                        • Monte Carlo worst-case analysis
+                        • Isolation matrix requirements
+                        """)
+
+            # Continue with quantitative charts if available
+            if RF_PERFORMANCE_AVAILABLE and st.session_state.get('rf_params') and quantitative_results:
+                # Keep existing chart logic but under expandable section
+                with st.expander("📈 Quantitative Analysis Charts", expanded=True):
+                    rf_params = st.session_state['rf_params']
+
+                    try:
+                        # Create comprehensive summary
+                        quant_df = create_quantitative_summary(quantitative_results)
+
+                        # Show quantitative metrics
+                        quant_col1, quant_col2, quant_col3, quant_col4 = st.columns(4)
+
+                        with quant_col1:
+                            avg_interference = np.mean([r.interference_at_victim_dbm for r in quantitative_results])
+                            st.metric("Avg Interference", f"{avg_interference:.1f} dBm")
+
+                        with quant_col2:
+                            max_desense = max([r.desensitization_db for r in quantitative_results])
+                            st.metric("Max Desensitization", f"{max_desense:.2f} dB",
+                                    help="Realistic range: 0-60 dB. Fixed calculation method.")
+
+                        with quant_col3:
+                            critical_interf = len([r for r in quantitative_results if r.risk_level in ['Critical', 'High']])
+                            st.metric("Critical Interference", critical_interf)
+
+                        with quant_col4:
+                            min_margin = min([r.interference_margin_db for r in quantitative_results])
+                            margin_help = "Positive = safe margin, Negative = interference above sensitivity"
+                            st.metric("Min Margin", f"{min_margin:+.1f} dB", help=margin_help)
+
+                        # Display quantitative results table
+                        st.markdown("**📊 Quantitative Analysis Results**")
+                        st.dataframe(quant_df, use_container_width=True, height=300)
+
+                        # Professional RF spectrum visualization
+                        st.markdown("**📈 RF Spectrum Analysis**")
+
+                        # Create spectrum chart
+                        fig = create_rf_spectrum_chart(quantitative_results, rf_params)
+                        if fig:
+                            st.plotly_chart(fig, use_container_width=True)
+
+                            # Chart interpretation in expandable section
+                            with st.expander("📊 How to Read This Chart"):
+                                chart_col1, chart_col2 = st.columns(2)
+                                with chart_col1:
+                                    st.markdown("""
+                                    **📊 Chart Elements:**
+                                    - **Green bars**: Fundamental signals (0 dBc reference)
+                                    - **Yellow products**: 2nd order dominant (IM2, 2H)
+                                    - **Orange products**: 3rd order dominant (IM3, 3H)
+                                    - **Blue products**: 4th order dominant (IM4, 4H)
+                                    - **Red products**: 5th order dominant (IM5, 5H)
+                                    """)
+                                with chart_col2:
+                                    st.markdown("""
+                                    **📈 Interpretation:**
+                                    - **Height** = interference level in dBc relative to fundamental
+                                    - **Hover** for details: formulas, coefficients, risk assessment
+                                    - **Professional accuracy** with 5th-order polynomial expansion
+                                    """)
+                        else:
+                            st.warning("⚠️ Could not generate spectrum chart")
+
+                        # Additional analysis charts
+                        chart_col1, chart_col2 = st.columns(2)
+
+                        with chart_col1:
+                            # Risk distribution
+                            risk_dist = pd.DataFrame([{'Risk': r.risk_level, 'Count': 1} for r in quantitative_results])
+                            if not risk_dist.empty:
+                                risk_counts = risk_dist.groupby('Risk').count().reset_index()
+                                fig_risk = px.pie(risk_counts, values='Count', names='Risk',
+                                                title="Risk Distribution",
+                                                color_discrete_map={
+                                                    'Critical': '#c62828',
+                                                    'High': '#ef6c00',
+                                                    'Medium': '#f57f17',
+                                                    'Low': '#1565c0',
+                                                    'Negligible': '#2e7d32'
+                                                })
+                                st.plotly_chart(fig_risk, use_container_width=True)
+
+                        with chart_col2:
+                            # Desensitization levels
+                            desense_data = pd.DataFrame([{
+                                'Product': r.product_type,
+                                'Desensitization_dB': r.desensitization_db,
+                                'Frequency_MHz': r.frequency_mhz
+                            } for r in quantitative_results])
+
+                            if not desense_data.empty:
+                                fig_desense = px.scatter(desense_data, x='Frequency_MHz', y='Desensitization_dB',
+                                                       color='Product', title="Desensitization vs Frequency",
+                                                       labels={'Desensitization_dB': 'Desensitization (dB)',
+                                                              'Frequency_MHz': 'Frequency (MHz)'})
+                                st.plotly_chart(fig_desense, use_container_width=True)
+
+                    except Exception as e:
+                        st.error(f"❌ Error in quantitative chart generation: {str(e)}")
                         st.info("💡 Try selecting fewer bands or using a different system preset")
-                
-                else:
-                    st.info("📊 Select bands and run analysis to see quantitative RF performance data")
                 
                 # Technical details in expandable sections
                 with st.expander("🔬 Technical Details & Column Explanations"):
@@ -1592,7 +1910,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
             
             # Export Section - Professional Export
             st.markdown("---")
-            st.subheader("� Professional Data Export")
+            st.subheader("📤 Professional Data Export")
             
             export_col1, export_col2, export_col3 = st.columns(3)
             
@@ -1667,21 +1985,22 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                         band_config.to_excel(writer, sheet_name='Band_Configuration', index=False)
                         
                         # Risk summary sheet
+                        total_results = len(full_results) if len(full_results) > 0 else 1  # Prevent div/0
                         risk_summary = pd.DataFrame({
                             'Risk_Level': ['🔴 Critical', '🟠 High', '🟡 Medium', '🔵 Low', '✅ Safe'],
                             'Count': [
-                                len(full_results[full_results['Risk'] == '�']),
+                                len(full_results[full_results['Risk'] == '🔴']),
                                 len(full_results[full_results['Risk'] == '🟠']),
                                 len(full_results[full_results['Risk'] == '🟡']),
                                 len(full_results[full_results['Risk'] == '🔵']),
                                 len(full_results[full_results['Risk'] == '✅'])
                             ],
                             'Percentage': [
-                                f"{len(full_results[full_results['Risk'] == '🔴'])/len(full_results)*100:.1f}%",
-                                f"{len(full_results[full_results['Risk'] == '🟠'])/len(full_results)*100:.1f}%", 
-                                f"{len(full_results[full_results['Risk'] == '🟡'])/len(full_results)*100:.1f}%",
-                                f"{len(full_results[full_results['Risk'] == '🔵'])/len(full_results)*100:.1f}%",
-                                f"{len(full_results[full_results['Risk'] == '✅'])/len(full_results)*100:.1f}%"
+                                f"{len(full_results[full_results['Risk'] == '🔴'])/total_results*100:.1f}%",
+                                f"{len(full_results[full_results['Risk'] == '🟠'])/total_results*100:.1f}%",
+                                f"{len(full_results[full_results['Risk'] == '🟡'])/total_results*100:.1f}%",
+                                f"{len(full_results[full_results['Risk'] == '🔵'])/total_results*100:.1f}%",
+                                f"{len(full_results[full_results['Risk'] == '✅'])/total_results*100:.1f}%"
                             ]
                         })
                         risk_summary.to_excel(writer, sheet_name='Risk_Summary', index=False)
@@ -1910,7 +2229,7 @@ with st.expander("⚖️ Technical Architecture & Professional Usage Guidelines"
     - **Data Layer** (`bands.py`): Type-safe band definitions with @dataclass for 70+ wireless bands
     - **Calculation Engine** (`calculator.py`): Mathematical IMD/harmonic analysis with professional risk assessment
     - **RF Performance Module** (`rf_performance.py`): Quantitative dBc/dBm analysis with system parameters
-    - **User Interface** (`ui_simplified.py`): Professional Streamlit visualization with multi-tab analysis
+    - **User Interface** (`ui.py`): Professional Streamlit visualization with multi-tab analysis
     
     **5-Level Risk Assessment System (Professionally Validated):**
     - **🔴 Critical (5)**: GPS interference, public safety bands, >10 dB desensitization risk
