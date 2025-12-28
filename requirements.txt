@@ -5,7 +5,13 @@ altair>=5.0.0
 openpyxl>=3.1.0
 pyperclip>=1.8.0
 
-# PDF report generation (optional)
+# Word report generation with embedded visualizations
+python-docx>=0.8.11
+matplotlib>=3.5.0,<3.8.0
+seaborn>=0.11.0
+numpy>=1.21.0
+
+# PDF report generation (optional - deprecated)
 reportlab>=4.0.0
 
 # Development and testing (optional)
