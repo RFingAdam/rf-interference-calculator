@@ -52,7 +52,7 @@ BAND_LIST: List[Band] = [
     Band("LTE_B28", 703, 748, 758, 803, "LTE B28 (700)", "LTE"),
     Band("LTE_B29", 0, 0, 717, 728, "LTE B29 (700 DL)", "LTE"),
     Band("LTE_B30", 2305, 2315, 2350, 2360, "LTE B30 (2300)", "LTE"),
-    Band("LTE_B32", 1452, 1496, 1452, 1496, "LTE B32 (1500 SDL)", "LTE"),
+    Band("LTE_B32", 0, 0, 1452, 1496, "LTE B32 (1500 SDL)", "LTE"),  # SDL = Supplemental Downlink (receive-only)
     Band("LTE_B38", 2570, 2620, 2570, 2620, "LTE B38 (TDD 2600)", "LTE"),
     Band("LTE_B39", 1880, 1920, 1880, 1920, "LTE B39 (TDD 1900)", "LTE"),
     Band("LTE_B40", 2300, 2400, 2300, 2400, "LTE B40 (TDD 2300)", "LTE"),
@@ -74,6 +74,7 @@ BAND_LIST: List[Band] = [
     
     # ISM Bands
     Band("UHF433", 433, 435, 433, 435, "UHF 433 MHz", "ISM"),
+    Band("UHF450", 450, 470, 450, 470, "UHF 450 MHz", "ISM"),
     Band("ISM902", 902, 928, 902, 928, "ISM 902-928 MHz", "ISM"),
     Band("ISM_24", 2400, 2500, 2400, 2500, "ISM 2.4 GHz Band", "ISM"),
     Band("ISM_58", 5725, 5875, 5725, 5875, "ISM 5.8 GHz Band", "ISM"),
@@ -97,10 +98,10 @@ BAND_LIST: List[Band] = [
     Band("HaLow_TW", 920, 925, 920, 925, "HaLow TW (922.5)", "HaLow"),
     Band("HaLow_KR", 918, 923, 918, 923, "HaLow KR (920.5)", "HaLow"),
     
-    # RFID/NFC
-    Band("RFID_HF", 13.56, 13.56, 13.56, 13.56, "RFID HF (13.56 MHz)", "RFID"),
-    Band("RFID_UHF", 860, 960, 860, 960, "RFID UHF (900 MHz)", "RFID"),
-    Band("NFC", 13.56, 13.56, 13.56, 13.56, "NFC (13.56 MHz)", "RFID"),
+    # RFID/NFC (13.56 MHz bands use ±60 kHz typical bandwidth)
+    Band("RFID_HF", 13.50, 13.62, 13.50, 13.62, "RFID HF (13.56 MHz)", "RFID"),
+    Band("RFID_UHF", 860, 960, 860, 960, "RFID UHF (860-960 MHz)", "RFID"),
+    Band("NFC", 13.50, 13.62, 13.50, 13.62, "NFC (13.56 MHz)", "RFID"),
     
     # Public Safety
     Band("TETRA", 380, 470, 380, 470, "TETRA (400 MHz)", "Public Safety"),

@@ -2,117 +2,174 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.4.3] - 2025-08-08
-### Added
-- **Visual Documentation**: Professional screenshot examples showing critical interference scenarios
-- **Enhanced Screenshots**: Real-world GPS, Wi-Fi, and BLE interference examples with visual results
-- **Simplified README**: Streamlined documentation focused on key features users care about
-- **Interactive Examples**: Screenshot integration showing actual interference analysis results
+## [2.0.0] - 2025-12-28 - Professional UI Overhaul
 
-### Fixed
-- **Product Distribution Chart**: Fixed Altair chart visualization with proper risk symbol handling
-- **Risk Symbol Support**: Chart now supports both new (🔴🟠🟡🔵✅) and legacy (⚠️✓) risk symbols  
-- **Chart Conditions**: Resolved Altair syntax errors with dynamic risk condition handling
-- **Frequency Statistics**: Enhanced risk frequency calculations and display metrics
+### Major UI Enhancements
+- **Professional Results Table**: Now displays P_TX (dBm), P_RX (dBm), Desense (dB),
+  Margin (dB), and 3GPP Compliance status for every interference product
+- **Summary Dashboard**: At-a-glance severity counts (Critical/High/Medium/Low/Safe)
+  with compliance metrics (avg/max desense, min margin)
+- **Compliance Report Section**: Expandable 3GPP/FCC violation report with regulatory
+  references, critical isolation requirements from isolation_matrix.py
+- **Monte Carlo Analysis**: Optional worst-case analysis button with P50/P95/P99
+  percentile results and worst-case condition reporting
 
-### Improved  
-- **User Experience**: Simplified interface with focus on critical interference identification
-- **Visual Presentation**: Professional screenshot integration for better understanding
-- **Documentation Flow**: Cleaner README structure highlighting key capabilities and examples
-- **Chart Reliability**: All visualization tabs now working correctly with proper error handling
+### New Functions
+- `enhance_results_with_quantitative()`: Adds dBm/dBc columns to results DataFrame
+- `create_compliance_summary()`: Generates compliance metrics for dashboard
+- `highlight_risks()`: Professional styling for results table
 
-## [1.4.2] - 2025-08-08
-### Added
-- **Professional Documentation**: Added GitHub Copilot instructions for AI-assisted development
-- **Screenshot Examples**: Created `/screenshots/` directory with real-world interference scenario documentation
-- **RF Engineering Examples**: Documented critical interference cases:
-  - LTE Band 13 2nd harmonic → GPS L1 interference (1574 MHz)
-  - LTE Band 4 3rd harmonic → Wi-Fi 5G interference (5265 MHz)  
-  - LTE Band 26 3rd harmonic → Wi-Fi 2.4G interference (2442 MHz)
-  - Multi-LTE IM3 products → BLE interference scenarios
-- **Enhanced Requirements**: Complete requirements.txt with optional development dependencies
+### Integration
+- Full integration of `regulatory_limits.py` into main results view
+- Full integration of `isolation_matrix.py` into compliance checking
+- Quantitative severity reasons displayed in results table
 
-### Fixed
-- **Code Cleanup**: Removed debug comments and unused imports from ui.py
-- **Import Organization**: Cleaned up import statements and added missing tempfile import
-- **Documentation Accuracy**: Updated version references and removed outdated comments
+### Code Quality Fixes
+- **Legacy IM3 Formula**: Fixed incorrect `2×P_in - IIP3` → correct `3×P_in - 2×IIP3`
+- **Duplicate Path Loss Function**: Removed dead code from copy-paste error
+- **Edge Case Guards**: Added empty list guards for max/min, division by zero protection
+- **Input Validation**: Added log10() edge case guards in filter rejection calculation
+- **Column Naming**: Renamed confusing `IM3_Type` → `Product_Subtype`
+- **RFID/NFC Bands**: Fixed zero-width bands (now 0.12 MHz bandwidth)
+- **RFID_UHF Label**: Fixed "(900 MHz)" → "(860-960 MHz)"
+- **Duplicate Import**: Removed duplicate `import altair as alt`
+- **Documentation Reference**: Fixed `ui_simplified.py` → `ui.py`
+- **Broken Emojis**: Fixed corrupted emoji characters throughout
 
-### Improved
-- **Repository Structure**: Added .github folder to gitignore for cleaner development
-- **Error Handling**: Enhanced import error handling for cloud deployments
-- **Professional Standards**: Code quality improvements following RF engineering best practices
+### Technical Notes
+- Version badge updated to 2.0.0
+- Professional export includes new quantitative columns
+- Backward compatibility maintained for basic analysis mode
 
-## [1.4.1] - 2025-08-08
-### Added
-- **Coexistence Test Mode**: Analyze LTE bands individually against coexistence radios (BLE, Wi-Fi) for realistic scenarios
-- **Coexistence Recommendations**: Industry-standard guidance for radio coordination
-  - BLE + Wi-Fi 2.4G → Packet Transfer Arbitration (PTA) required
-  - LTE + BLE → WCI-2 interface coordination recommended  
-  - LTE + Wi-Fi → WCI-2 interface with LAA compliance
-  - Band-specific recommendations for public safety and TDD bands
-- **Individual LTE Band Testing**: Each LTE band tested separately with coexistence radios to match real-world usage
-- **Enhanced UI for Coexistence**: Dedicated coexistence radio selection and scenario preview
-- **Test Scenario Management**: Automatic generation of LTE+coexistence test combinations
+## [1.9.0] - 2025-12-28 - PhD-Level RF Analysis Overhaul
 
-### Improved
-- **Realistic Analysis**: Reflects actual deployment where only one LTE band is typically active at a time
-- **Professional Recommendations**: Industry-standard coexistence protocols and interfaces
-- **Results Organization**: Coexistence mode results show test scenarios and LTE band combinations
-- **User Experience**: Clear differentiation between standard analysis and coexistence testing modes
+### Major Mathematical Fixes
 
-## [1.4.0] - 2025-08-08
-### Added
-- **IM2 Beat Terms (f₁ ± f₂)**: Added critical beat frequency calculations often higher in level than IM3 products
-- **HD4 and HD5 Harmonics**: Extended harmonic analysis to include 4th and 5th harmonic products (4f, 5f)
-- **Extended IM4/IM5 Terms**: Added comprehensive higher-order IMD products including 3f₁+f₂, f₁+3f₂, and 2f₁±3f₂
-- **Signal Level Based Risk Prioritization**: Results now ordered by typical signal level (2H > IM2 > 3H > IM3 > 4H > IM4 > 5H > IM5 > IM7)
-- **Professional RF Engineering Completeness**: Comprehensive IMD analysis matching industry-standard RF engineering practices
+- **HD4/HD5 Calculation**: Fixed polynomial coefficient ratios
+  - HD4: Now uses -30 dB offset from HD2 (was incorrectly -20 dB)
+  - HD5: Now uses -20 dB offset from HD3 (was incorrectly -15 dB)
+  - Based on polynomial analysis: a4/a2 = 0.0018/0.0562 = -29.9 dB
 
-### Improved
-- **Enhanced Analysis Coverage**: Now covers all critical intermodulation products for professional RF interference analysis
-- **IM2 Beat Analysis**: Enabled by default due to critical importance in wideband systems
-- **Risk Assessment**: Results prioritized by actual signal level importance rather than alphabetical order
-- **UI Enhancements**: Updated tooltips and help text to reflect extended analysis capabilities
+- **Coupling-Aware Isolation Model**: Replaced simple additive model
+  - Old model: Total = Antenna + PCB + Shield (overestimated by 5-15 dB)
+  - New model: Worst-path + diminishing returns from parallel paths
+  - Includes frequency-dependent effects (higher freq = worse isolation)
 
-## [1.3.0] - 2025-08-08
-### Added
-- **Enhanced Deduplication Logic**: Implemented mathematical uniqueness detection for interference products
-- **Risk-First Result Sorting**: Dangerous interference products automatically sorted to top for immediate visibility
-- **Interactive Multi-Tab Visualization**: Added dedicated tabs for metrics, data tables, charts, and export
-- **Configuration Validation System**: Real-time warnings and recommendations for invalid configurations
-- **Advanced Export Features**: Enhanced Excel export with dedicated summary and configuration sheets
-- **Guard Band Quick Presets**: Added preset configurations for common guard band scenarios
-- **Frequency Range Filtering**: Ability to limit analysis to specific frequency ranges
-- **Enhanced Metrics Dashboard**: 4-column professional metrics display with color-coded risk indicators
+- **Harmonic Antenna Isolation**: Corrected direction of adjustment
+  - Old model assumed isolation IMPROVES at harmonics (wrong)
+  - New model shows isolation often DEGRADES at harmonic frequencies
+  - Antenna-type specific adjustments (patch, dipole, helical)
 
-### Fixed
-- **Duplicate Result Elimination**: Fixed deduplication algorithm to focus on mathematical uniqueness rather than descriptive differences
-- **Import Statement Organization**: Cleaned up import order and removed unused imports
-- **GNSS Band Correction**: Fixed GNSS bands to be receive-only (no transmission) to prevent incorrect aggressor calculations
-- **Configuration Validation**: Updated band validation to properly handle receive-only bands (GNSS) without false warnings
-- **Cloud Deployment**: Added graceful handling for missing pyperclip in cloud environments with fallback text areas
-- **Data Structure Consistency**: Standardized frequency field names across all IMD calculation types
+- **IMD Scaling Formulas**: Replaced empirical HD-scaling with proper RF theory
+  - IM2: P_IM2 = 2×P_in - IIP2 (standard two-tone formula)
+  - IM3: P_IM3 = 3×P_in - 2×IIP3 (industry standard)
+  - IM5: P_IM5 = 5×P_in - 4×IIP5 (IIP5 ≈ IIP3 + 10 dB)
+  - IM7: P_IM7 = 7×P_in - 6×IIP7 (IIP7 ≈ IIP3 + 15 dB)
 
-### Improved
-- **Algorithm Performance**: Optimized interference calculation engine with intelligent result filtering
-- **Error Handling**: Enhanced input validation with user-friendly error messages
-- **Code Documentation**: Updated inline documentation and README with comprehensive feature descriptions
-- **Professional UI Design**: Improved layout consistency and visual hierarchy
+### New Analysis Features
 
-## [1.2.0] - 2025-08-08
-### Added
-- Enhanced UI layout with improved metrics display
-- Additional IMD product analysis capabilities
-- Improved result formatting and export options
+- **Power-Based Severity Assessment** (`calculator.py`)
+  - `assess_risk_severity_quantitative()`: Uses actual dBm levels instead of frequency matching
+  - GNSS thresholds: 8 dB desense = critical, 3 dB = high, 1 dB = medium
+  - Standard tech thresholds: 12 dB = critical, 6 dB = high, 3 dB = medium
+  - Returns severity reason with quantitative data
 
-## [1.1.0] - 2025-08-08
-### Added
-- Ensured all table columns always present in results table
-- Added versioning to `ui.py` and README
-- Improved export and UI consistency
+- **Receiver Selectivity / Filter Rejection** (`rf_performance.py`)
+  - `calculate_rx_filter_rejection()`: Models filter attenuation vs frequency offset
+  - Supports Butterworth, Chebyshev, SAW, and BAW filter types
+  - Realistic rolloff rates and ultimate rejection limits
 
-## [1.0.0] - 2025-08-07
-### Added
-- Initial modular release with full band set, risk logic, and professional UI
-- Modular codebase: `bands.py`, `calculator.py`, `ui.py`
-- Category filtering, multi-select, and advanced IMD/harmonic analysis
+- **Duty Cycle / TDM Correction** (`rf_performance.py`)
+  - `apply_duty_cycle_correction()`: Reduces desensitization for intermittent interference
+  - Formula: Desens_avg = Desens_cont + 10×log10(duty_cycle)
+  - Technology-specific duty cycles (WiFi ~40%, BLE ~5%, TDD LTE ~50%)
+
+- **Monte Carlo Analysis** (`rf_performance.py`)
+  - `monte_carlo_interference_analysis()`: Worst-case analysis with tolerances
+  - Varies TX power, IIP3, isolation, temperature within tolerances
+  - Returns P50, P95, P99 percentiles and worst-case conditions
+  - `generate_monte_carlo_report()`: Human-readable analysis report
+
+### New Modules
+
+- **regulatory_limits.py**: 3GPP/FCC Spurious Emission Database
+  - Band-specific limits from TS 36.101 / TS 38.101
+  - GPS L1 protection limits for LTE B13/B14
+  - `check_emission_compliance()`: Verify against regulatory limits
+  - `generate_compliance_report()`: Full compliance analysis
+
+- **isolation_matrix.py**: Per-Band Isolation Requirements
+  - 20+ critical band pairs with required isolation
+  - LTE B13 → GNSS L1: 50 dB minimum, 60 dB recommended
+  - `get_required_isolation()`: Lookup isolation requirements
+  - `check_isolation_compliance()`: Verify actual vs required isolation
+
+### Technical Improvements
+
+- Added duty cycle parameters to `SystemParameters` dataclass
+- Added `ToleranceParameters` dataclass for Monte Carlo analysis
+- Enhanced `calculate_interference_at_victim_quantitative()` with new isolation model
+- All harmonic/IMD calculations now use coupling-aware isolation
+- Added `get_technology_duty_cycle()` for band-specific duty cycles
+
+### Reference Formulas
+
+```
+# Correct HD Calculations (polynomial coefficients)
+HD4_dBc = HD2_dBc - 30.0 dB
+HD5_dBc = HD3_dBc - 20.0 dB
+
+# Standard IMD Formulas
+IM2 = 2×P_in - IIP2
+IM3 = 3×P_in - 2×IIP3
+IM5 = 5×P_in - 4×(IIP3 + 10)
+
+# Desensitization (unchanged - was correct)
+Desens_dB = 10×log10(1 + I/N)
+
+# Duty Cycle Correction
+Desens_adjusted = Desens_continuous + 10×log10(duty_cycle)
+```
+
+## [1.8.1] - 2025-12-28 - Bug Fixes & Documentation Sync
+
+### Bug Fixes
+- **IMD Product Classification**: Fixed mislabeled intermodulation products
+  - `4A±B` products (order 5) now correctly classified as IM5 instead of IM3
+  - `2A±2B` products (order 4) now correctly classified as IM4 instead of IM3
+- **Severity Assessment**: Added proper risk severity assessment to all IMD calculation blocks (IM4, IM5, IM7, ACLR) - previously used legacy symbols without quantitative analysis
+- **LTE B32 Band Definition**: Fixed from TDD-style to SDL (Supplemental Downlink) - B32 is receive-only, UE does not transmit on this band
+- **Risk Symbol Consistency**: Consolidated all legacy `⚠️`/`✓` symbols to unified severity-based emoji system (🔴🟠🟡🔵✅)
+
+### Documentation & Assets
+- **Professional Logo**: Added purple SVG logo with RF wave design (`docs/assets/logo.svg`)
+- **README Header**: Added professional header with logo and status badges
+- **Dev Container**: Added GitHub Codespaces support (`.devcontainer/devcontainer.json`)
+- **Demo Scripts**: Added `demo_critical_scenarios.py` with 4 critical interference examples
+- **Demo Documentation**: Added `DEMO_USAGE.md` with usage instructions
+- **License**: Upgraded to AGPL-3.0
+
+### Technical Notes
+- IMD order calculation: Order = sum of coefficient magnitudes (e.g., 4A+B = |4|+|1| = 5)
+- LTE B32 SDL bands have no UE uplink allocation per 3GPP specifications
+
+## [1.8.0] - 2025-08-10 - Production Ready RF Analysis
+### Major Features
+- **🔬 Professional RF Performance Analysis**: Complete signal-level interference calculations using industry-standard formulas (P_IM3 = 3×P_in - 2×IIP3)
+- **🛠️ System Parameter Modeling**: Comprehensive RF system configuration with antenna isolation, IIP3/IIP2 linearity, and realistic power levels
+- **📡 Industry Presets**: Mobile Device, IoT Gateway, Automotive, Base Station, and Laboratory configurations
+- **📊 Engineering Metrics**: Real interference power levels (dBm), performance margins, desensitization analysis, and risk assessment
+- **🎯 Professional Export**: Word reports with embedded charts, comprehensive analysis tables, and design recommendations
+
+### Enhanced Analysis
+- **Complete IMD Coverage**: IM2 beat terms, IM3, higher-order products (IM4/IM5/IM7) + harmonics (2H-5H)
+- **70+ Wireless Bands**: LTE, Wi-Fi, BLE, GNSS, ISM with accurate frequency assignments
+- **Risk-Based Results**: Automatic severity assessment with color-coded alerts prioritized by signal level
+- **Interactive Visualizations**: Frequency spectrum, risk distribution, band coverage analysis
+
+## [1.0.0] - 2025-08-07 - Initial Release
+### Core Features
+- Professional RF interference calculator with modular architecture
+- Band-based analysis with category filtering and multi-select capability
+- Advanced IMD and harmonic calculations with risk assessment
+- Export functionality (CSV, Excel, JSON) with professional formatting
