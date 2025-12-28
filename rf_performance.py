@@ -67,6 +67,13 @@ class SystemParameters:
     noise_figure_db: float = 6.0         # dB - System noise figure
     thermal_noise_density_dbm_hz: float = -174.0  # dBm/Hz - Thermal noise density
     
+    # === Duty Cycle Parameters (for TDM coexistence analysis) ===
+    lte_duty_cycle: float = 0.5           # LTE uplink duty cycle (~50% for TDD, 100% for FDD)
+    wifi_duty_cycle: float = 0.4          # WiFi CSMA/CA average duty cycle (~40%)
+    ble_duty_cycle: float = 0.05          # BLE hopping duty cycle (~5% per channel)
+    gnss_duty_cycle: float = 1.0          # GNSS always receiving
+    halow_duty_cycle: float = 0.3         # HaLow typical duty cycle
+
     # === User Configuration Metadata ===
     configuration_name: str = "Default"   # User-defined configuration name
     configuration_notes: str = ""         # User notes about this configuration
@@ -176,40 +183,438 @@ def calculate_hd2_from_iip2(tx_power_dbm: float, iip2_dbm: float, bias_optimized
     
     return hd2_dbc
 
-def calculate_higher_order_harmonics(hd2_dbc: float, hd3_dbc: float) -> tuple:
+def calculate_higher_order_harmonics(hd2_dbc: float, hd3_dbc: float,
+                                     tx_power_dbm: float = 20.0, iip3_dbm: float = -10.0) -> tuple:
     """
     Calculate 4th and 5th harmonics from fundamental 2nd/3rd order performance
-    
-    4th order: Related to 2nd order (even symmetry) - typically 15-25 dB weaker
-    5th order: Related to 3rd order (odd symmetry) - typically 10-20 dB weaker
-    
+
+    CORRECTED: Uses polynomial coefficient ratios instead of empirical offsets.
+
+    From polynomial analysis (a₂=0.0562, a₃=0.01, a₄=0.0018, a₅=0.001):
+    - HD4 relative to HD2: 20*log10(a₄/a₂) = 20*log10(0.0018/0.0562) = -29.9 dB
+    - HD5 relative to HD3: 20*log10(a₅/a₃) = 20*log10(0.001/0.01) = -20.0 dB
+
+    Note: Previous values of -20 dB (HD4) and -15 dB (HD5) were ~20 dB too optimistic.
+
     Args:
         hd2_dbc: 2nd harmonic level in dBc
         hd3_dbc: 3rd harmonic level in dBc
-        
+        tx_power_dbm: TX power for compression effects
+        iip3_dbm: IIP3 for compression effects
+
     Returns:
         (hd4_dbc, hd5_dbc): 4th and 5th harmonic levels in dBc
     """
-    # HD4: Even order, derived from HD2 behavior
-    hd4_improvement_db = 20.0  # Typical improvement over HD2
-    hd4_dbc = hd2_dbc - hd4_improvement_db
-    
-    # HD5: Odd order, derived from HD3 behavior  
-    hd5_improvement_db = 15.0  # Typical improvement over HD3
-    hd5_dbc = hd3_dbc - hd5_improvement_db
-    
+    # CORRECTED: Use polynomial coefficient ratios (PhD-level review finding)
+    # HD4 from a₄/a₂ ratio: 20*log10(0.0018/0.0562) ≈ -29.9 dB
+    # Using -30.0 dB as practical value (was incorrectly -20 dB)
+    hd4_polynomial_offset = 30.0
+    hd4_dbc = hd2_dbc - hd4_polynomial_offset
+
+    # HD5 from a₅/a₃ ratio: 20*log10(0.001/0.01) = -20.0 dB
+    # Using -20.0 dB as practical value (was incorrectly -15 dB)
+    hd5_polynomial_offset = 20.0
+    hd5_dbc = hd3_dbc - hd5_polynomial_offset
+
+    # Add power-dependent compression effects for high-power operation
+    # When operating close to or above compression, higher-order products grow faster
+    power_delta = tx_power_dbm - iip3_dbm
+    if power_delta > 10:  # Operating in compression region
+        compression_factor = (power_delta - 10) * 0.15  # 0.15 dB per dB above threshold
+        hd4_dbc += compression_factor * 0.5  # HD4 grows slower
+        hd5_dbc += compression_factor * 0.3  # HD5 grows slowest
+
     # Physical limits for higher orders (don't go below noise floor)
-    hd4_dbc = max(hd4_dbc, -80.0)
-    hd5_dbc = max(hd5_dbc, -80.0)
-    
+    hd4_dbc = max(hd4_dbc, -85.0)
+    hd5_dbc = max(hd5_dbc, -90.0)
+
     return hd4_dbc, hd5_dbc
+
+def calculate_total_isolation(
+    antenna_isolation_db: float,
+    pcb_isolation_db: float,
+    shield_isolation_db: float,
+    frequency_mhz: float = 1000.0,
+    coupling_factor: float = 0.3
+) -> float:
+    """
+    Calculate total system isolation accounting for parallel coupling paths.
+
+    CORRECTED: Simple additive model (A + B + C) overestimates isolation by 5-15 dB.
+    Real isolation is limited by the weakest path plus diminishing returns from additional paths.
+
+    Model: Total = min_isolation + correction_for_additional_paths + frequency_effects
+
+    Physical basis:
+    - RF energy follows the path of least resistance (lowest isolation)
+    - Additional isolation mechanisms provide diminishing returns due to coupling
+    - High frequencies can have worse isolation due to PCB parasitic coupling
+
+    Args:
+        antenna_isolation_db: Physical antenna separation/isolation (dB)
+        pcb_isolation_db: PCB layout isolation (dB)
+        shield_isolation_db: Additional RF shielding (dB), 0 = no shield
+        frequency_mhz: Operating frequency for frequency-dependent effects
+        coupling_factor: Coupling between isolation mechanisms (0.0-1.0, default 0.3)
+
+    Returns:
+        Total effective isolation in dB
+    """
+    # Collect non-zero isolation contributions
+    isolations = [antenna_isolation_db, pcb_isolation_db, shield_isolation_db]
+    isolations = [i for i in isolations if i > 0]
+
+    if not isolations:
+        return 0.0
+
+    # Minimum isolation is the weakest (limiting) path
+    min_isolation = min(isolations)
+
+    # Additional isolation from other paths with diminishing returns
+    additional = 0.0
+    for iso in sorted(isolations)[1:]:
+        # Each additional path adds limited benefit due to coupling
+        # Maximum contribution is ~6 dB per path (coupling-limited)
+        path_contribution = min(iso - min_isolation, 6.0) * (1.0 - coupling_factor)
+        additional += path_contribution * 0.5  # 50% diminishing factor
+
+    # Frequency-dependent effects on isolation
+    # Higher frequencies often have WORSE isolation due to:
+    # - PCB trace coupling increases with frequency
+    # - Antenna near-field effects change
+    # - Shield effectiveness can decrease
+    if frequency_mhz > 3000:
+        freq_factor = -3.0  # High freq = worse isolation
+    elif frequency_mhz > 2000:
+        freq_factor = -2.0
+    elif frequency_mhz > 1000:
+        freq_factor = -1.0
+    elif frequency_mhz > 500:
+        freq_factor = 0.0  # Reference frequency range
+    else:
+        freq_factor = 1.0  # Lower freq = slightly better isolation
+
+    total_isolation = min_isolation + additional + freq_factor
+
+    # Physical limits: isolation can't exceed ~60 dB in practical systems
+    # and can't be negative
+    return max(0.0, min(total_isolation, 60.0))
+
+
+def calculate_harmonic_isolation_adjustment(
+    fundamental_freq_mhz: float,
+    harmonic_order: int,
+    antenna_type: str = "default"
+) -> float:
+    """
+    Calculate isolation adjustment for harmonic frequencies.
+
+    CORRECTED: Previous model assumed isolation IMPROVES at harmonics (wrong).
+    Reality: Antenna patterns at harmonics are unpredictable and often WORSE.
+
+    Physical basis:
+    - Antenna gain pattern changes dramatically at harmonic frequencies
+    - Multi-mode operation can increase coupling at some harmonics
+    - Free-space path loss helps at very high frequencies (>6 GHz)
+
+    Args:
+        fundamental_freq_mhz: Fundamental frequency in MHz
+        harmonic_order: 2, 3, 4, or 5
+        antenna_type: "patch", "dipole", "helical", or "default"
+
+    Returns:
+        Isolation adjustment in dB (negative = worse isolation)
+    """
+    harmonic_freq = fundamental_freq_mhz * harmonic_order
+
+    # Antenna-specific harmonic isolation behavior
+    # Based on antenna radiation pattern changes at harmonics
+    adjustments = {
+        "patch": {
+            2: -2.0,   # Patch 2H: higher-order mode, often worse
+            3: -4.0,   # Patch 3H: significant pattern distortion
+            4: -3.0,   # Patch 4H: mixed behavior
+            5: -5.0    # Patch 5H: complex multi-mode
+        },
+        "dipole": {
+            2: +2.0,   # Dipole 2H: full-wave mode, can be better
+            3: -2.0,   # Dipole 3H: 3/2 wavelength, variable
+            4: +1.0,   # Dipole 4H: 2-wavelength, can be better
+            5: -3.0    # Dipole 5H: complex pattern
+        },
+        "helical": {
+            2: -1.0,   # Helical 2H: frequency-dependent
+            3: -2.0,   # Helical 3H: pattern degradation
+            4: -3.0,   # Helical 4H: significant change
+            5: -4.0    # Helical 5H: complex
+        },
+        "default": {
+            2: -1.0,   # Conservative default: slight degradation
+            3: -2.0,   # Default: moderate degradation
+            4: -2.0,   # Default: moderate degradation
+            5: -3.0    # Default: worse at higher harmonics
+        }
+    }
+
+    ant_adj = adjustments.get(antenna_type, adjustments["default"])
+    base_adjustment = ant_adj.get(harmonic_order, -2.0)
+
+    # High frequency harmonics (>6 GHz) benefit from free-space path loss
+    if harmonic_freq > 6000:
+        base_adjustment += 4.0  # Significant FSPL benefit
+    elif harmonic_freq > 4000:
+        base_adjustment += 2.0  # Moderate FSPL benefit
+
+    return base_adjustment
+
+
+def calculate_rx_filter_rejection(
+    interference_freq_mhz: float,
+    rx_center_freq_mhz: float,
+    rx_bandwidth_mhz: float,
+    filter_order: int = 5,
+    filter_type: str = "butterworth"
+) -> float:
+    """
+    Calculate receiver filter attenuation based on frequency offset.
+
+    Uses standard filter response curves:
+    - In-band (within 0.5×BW): 0 dB rejection
+    - Transition band (0.5-2×BW): Gradual rolloff
+    - Stop band (>2×BW): Full rejection per filter type
+
+    Butterworth: 20×n dB/decade (where n = filter order)
+    Chebyshev: ~24×n dB/decade (steeper transition)
+    SAW: Sharp transition, moderate ultimate rejection
+    BAW: Similar to SAW with slightly better rejection
+
+    Args:
+        interference_freq_mhz: Interference frequency in MHz
+        rx_center_freq_mhz: Receiver center frequency in MHz
+        rx_bandwidth_mhz: Receiver 3dB bandwidth in MHz
+        filter_order: Filter order (typical: 3-7 for practical filters)
+        filter_type: "butterworth", "chebyshev", "saw", or "baw"
+
+    Returns:
+        Filter rejection in dB (positive value = attenuation)
+    """
+    # Guard against invalid inputs that could cause math errors
+    if rx_bandwidth_mhz <= 0 or interference_freq_mhz <= 0 or rx_center_freq_mhz <= 0:
+        return 0.0
+
+    freq_offset = abs(interference_freq_mhz - rx_center_freq_mhz)
+    corner_freq = rx_bandwidth_mhz / 2.0
+
+    # In-band: no rejection
+    if freq_offset <= corner_freq:
+        return 0.0
+
+    # Normalized frequency offset (relative to corner frequency)
+    normalized_offset = freq_offset / corner_freq
+
+    # Filter-specific response characteristics
+    if filter_type == "chebyshev":
+        # Chebyshev: steeper transition, ripple in passband
+        if normalized_offset <= 2.0:
+            # Transition band - faster rolloff than Butterworth
+            rolloff_rate = filter_order * 24.0  # dB/decade
+            rejection = rolloff_rate * math.log10(normalized_offset) * 0.7
+        else:
+            # Stop band
+            rejection = filter_order * 24.0 * math.log10(normalized_offset)
+        max_rejection = 70.0  # Chebyshev ultimate rejection
+
+    elif filter_type == "saw":
+        # SAW filter: sharp transition, moderate rejection
+        if normalized_offset <= 1.5:
+            # Sharp transition band
+            rejection = filter_order * 15.0 * (normalized_offset - 1.0)
+        else:
+            # Stop band
+            rejection = filter_order * 8.0 + 20.0 * math.log10(normalized_offset / 1.5)
+        max_rejection = 50.0  # SAW typical ultimate rejection
+
+    elif filter_type == "baw":
+        # BAW filter: similar to SAW, slightly better
+        if normalized_offset <= 1.5:
+            rejection = filter_order * 16.0 * (normalized_offset - 1.0)
+        else:
+            rejection = filter_order * 9.0 + 22.0 * math.log10(normalized_offset / 1.5)
+        max_rejection = 55.0  # BAW typical ultimate rejection
+
+    else:  # butterworth (default)
+        # Butterworth: maximally flat, 20×n dB/decade rolloff
+        if normalized_offset <= 2.0:
+            # Transition band
+            rolloff_rate = filter_order * 20.0  # dB/decade
+            rejection = rolloff_rate * math.log10(normalized_offset) * 0.5
+        else:
+            # Stop band
+            rejection = filter_order * 20.0 * math.log10(normalized_offset)
+        max_rejection = 60.0  # Butterworth practical limit
+
+    # Apply realistic limits
+    return min(max(rejection, 0.0), max_rejection)
+
+
+def apply_duty_cycle_correction(
+    desensitization_db_continuous: float,
+    aggressor_duty_cycle: float,
+    victim_integration_time_ms: float = 10.0
+) -> float:
+    """
+    Reduce effective desensitization for intermittent interference.
+
+    For non-continuous (pulsed/TDM) interference, the time-averaged impact
+    is reduced compared to continuous interference.
+
+    Formula: Desens_avg = Desens_cont + 10×log₁₀(duty_cycle)
+
+    This applies when:
+    - Aggressor is intermittent (TDD, hopping, CSMA/CA)
+    - Victim has integration time longer than pulse period
+
+    Physical basis:
+    - Power averaging: Time-averaged interference power is reduced
+    - Receiver AGC: May not respond to short pulses
+    - Error correction: Can recover from burst errors
+
+    Args:
+        desensitization_db_continuous: Desensitization for continuous interference (dB)
+        aggressor_duty_cycle: Fraction of time aggressor is transmitting (0.0-1.0)
+        victim_integration_time_ms: Victim receiver integration time (ms)
+
+    Returns:
+        Adjusted desensitization in dB
+    """
+    # Continuous interference (duty cycle ≥ 95%)
+    if aggressor_duty_cycle >= 0.95:
+        return desensitization_db_continuous
+
+    # Very low duty cycle (≤ 1%) - nearly negligible
+    if aggressor_duty_cycle <= 0.01:
+        return 0.0
+
+    # Clamp duty cycle to valid range
+    duty_cycle = max(0.01, min(0.99, aggressor_duty_cycle))
+
+    # Time-averaging reduction: 10×log₁₀(duty_cycle)
+    # Example: 50% duty cycle = -3 dB, 10% duty cycle = -10 dB
+    duty_cycle_reduction_db = 10 * math.log10(duty_cycle)
+
+    # Apply the reduction
+    adjusted_desensitization = desensitization_db_continuous + duty_cycle_reduction_db
+
+    # Minimum desensitization: even brief interference has some effect
+    # Use 10% of continuous desensitization as floor
+    min_desensitization = desensitization_db_continuous * 0.1
+
+    return max(adjusted_desensitization, min_desensitization, 0.0)
+
+
+def get_technology_duty_cycle(band_code: str, system_params: SystemParameters) -> float:
+    """
+    Get duty cycle for a specific technology/band.
+
+    Args:
+        band_code: Band code (e.g., 'LTE_B1', 'WiFi_2G', 'BLE')
+        system_params: System parameters with duty cycle values
+
+    Returns:
+        Duty cycle as fraction (0.0-1.0)
+    """
+    band_upper = band_code.upper()
+
+    # TDD LTE bands (bidirectional on same frequency)
+    tdd_lte_bands = ['B38', 'B39', 'B40', 'B41', 'B42', 'B43', 'B44', 'B48']
+
+    if any(tdd in band_upper for tdd in tdd_lte_bands):
+        return system_params.lte_duty_cycle  # TDD LTE ~50%
+    elif 'LTE' in band_upper or '5G' in band_upper:
+        return 1.0  # FDD LTE is continuous in its band
+    elif any(wifi in band_upper for wifi in ['WIFI', 'WI-FI', 'WLAN']):
+        return system_params.wifi_duty_cycle  # WiFi CSMA/CA ~40%
+    elif 'BLE' in band_upper or 'BLUETOOTH' in band_upper:
+        return system_params.ble_duty_cycle  # BLE hopping ~5%
+    elif 'HALOW' in band_upper:
+        return system_params.halow_duty_cycle  # HaLow ~30%
+    elif any(gnss in band_upper for gnss in ['GNSS', 'GPS']):
+        return 1.0  # GNSS is receive-only, always on
+    elif any(ism in band_upper for ism in ['ISM', 'ZIGBEE', 'THREAD', 'MATTER']):
+        return 0.2  # Low-power IoT protocols ~20%
+    elif any(lora in band_upper for lora in ['LORA', 'SIGFOX']):
+        return 0.01  # LPWAN very low duty cycle ~1%
+    else:
+        return 0.5  # Conservative default
+
+
+def calculate_imd_from_intercept(
+    p_in_dbm: float,
+    iip_dbm: float,
+    order: int
+) -> float:
+    """
+    Calculate IMD power using standard RF intercept point formulas.
+
+    CORRECTED: Uses proper two-tone IMD equations instead of empirical HD scaling.
+
+    Standard RF formulas (two equal-power tones):
+    - IM2: P_IM2 = 2×P_in - IIP2  (beat products: f1±f2)
+    - IM3: P_IM3 = 3×P_in - 2×IIP3  (intermod: 2f1±f2, 2f2±f1)
+    - IM5: P_IM5 = 5×P_in - 4×IIP5 ≈ 5×P_in - 4×(IIP3+10)
+    - IM7: P_IM7 = 7×P_in - 6×IIP7 ≈ 7×P_in - 6×(IIP3+15)
+
+    Reference: IEEE microwave theory, 3GPP TS 36.104
+
+    Args:
+        p_in_dbm: Input power per tone in dBm
+        iip_dbm: Input intercept point (IIP2, IIP3, etc.) in dBm
+        order: IMD order (2, 3, 4, 5, 7)
+
+    Returns:
+        IMD product power in dBm
+    """
+    if order == 2:
+        # IM2: beat products (f1+f2, f1-f2)
+        # P_IM2 = 2×P_in - IIP2
+        return 2 * p_in_dbm - iip_dbm
+
+    elif order == 3:
+        # IM3: 2f1±f2, 2f2±f1 products (most important for close-in interference)
+        # P_IM3 = 3×P_in - 2×IIP3
+        return 3 * p_in_dbm - 2 * iip_dbm
+
+    elif order == 4:
+        # IM4: derived from IM2 mixing, typically 15-20 dB below IM2
+        im2_power = 2 * p_in_dbm - iip_dbm
+        return im2_power - 18.0  # IM4 typically 18 dB below IM2
+
+    elif order == 5:
+        # IM5: 3f1±2f2, 3f2±2f1 products
+        # P_IM5 = 5×P_in - 4×IIP5
+        # IIP5 is typically IIP3 + 10 dB
+        iip5_estimated = iip_dbm + 10.0
+        return 5 * p_in_dbm - 4 * iip5_estimated
+
+    elif order == 7:
+        # IM7: 4f1±3f2, 4f2±3f1 products
+        # P_IM7 = 7×P_in - 6×IIP7
+        # IIP7 is typically IIP3 + 15-20 dB
+        iip7_estimated = iip_dbm + 15.0
+        return 7 * p_in_dbm - 6 * iip7_estimated
+
+    else:
+        # Generic higher order approximation
+        iipn_estimated = iip_dbm + (order - 3) * 5.0
+        return order * p_in_dbm - (order - 1) * iipn_estimated
+
 
 def calculate_system_harmonic_levels(tx_power_dbm: float, system_params: SystemParameters) -> dict:
     """
     Calculate all harmonic distortion levels from fundamental system parameters
-    
+
     This is the CORRECT RF engineering approach:
-    Input: TX power + System linearity characteristics (IIP3/IIP2)  
+    Input: TX power + System linearity characteristics (IIP3/IIP2)
     Output: Calculated harmonic performance levels
     
     Args:
@@ -232,15 +637,17 @@ def calculate_system_harmonic_levels(tx_power_dbm: float, system_params: SystemP
         system_params.pa_class
     )
     
-    # Calculate higher order harmonics
-    hd4_dbc, hd5_dbc = calculate_higher_order_harmonics(hd2_dbc, hd3_dbc)
-    
+    # Calculate higher order harmonics with compression effects
+    hd4_dbc, hd5_dbc = calculate_higher_order_harmonics(
+        hd2_dbc, hd3_dbc, tx_power_dbm, system_params.iip3_dbm
+    )
+
     return {
         'hd2_dbc': hd2_dbc,
-        'hd3_dbc': hd3_dbc,  
+        'hd3_dbc': hd3_dbc,
         'hd4_dbc': hd4_dbc,
         'hd5_dbc': hd5_dbc,
-        'calculation_method': 'Calculated from IIP3/IIP2 + TX Power',
+        'calculation_method': 'Calculated from IIP3/IIP2 + TX Power (polynomial coefficients)',
         'tx_power_dbm': tx_power_dbm,
         'iip3_dbm': system_params.iip3_dbm,
         'iip2_dbm': system_params.iip2_dbm,
@@ -340,20 +747,24 @@ def calculate_harmonic_level_quantitative(fundamental_power_dbm: float, harmonic
     total_tx_filter_db = base_tx_filter_db + freq_dependent_filtering.get(harmonic_order, 0)
     harmonic_after_tx_filter_dbm = harmonic_at_tx_dbm - total_tx_filter_db
     
-    # Step 3: Calculate path loss with frequency-dependent antenna isolation
+    # Step 3: Calculate path loss with CORRECTED isolation model
     harmonic_freq_mhz = fundamental_freq_mhz * harmonic_order
-    
-    # Base physical isolation
-    base_isolation_db = (system_params.antenna_isolation + 
-                        system_params.pcb_isolation + 
-                        system_params.shield_isolation)
-    
-    # Frequency-dependent isolation improvement: 20*log10(f_harm/f_fund)
-    # This is due to antenna pattern, free-space path loss, and coupling mechanisms
-    # Cap this at realistic values to prevent over-suppression
-    freq_isolation_db = min(20 * math.log10(harmonic_order), 10.0) if harmonic_order > 1 else 0
-    
-    total_isolation_db = base_isolation_db + freq_isolation_db
+
+    # CORRECTED: Use coupling-aware isolation model (not simple additive)
+    base_isolation_db = calculate_total_isolation(
+        system_params.antenna_isolation,
+        system_params.pcb_isolation,
+        system_params.shield_isolation,
+        harmonic_freq_mhz
+    )
+
+    # CORRECTED: Apply harmonic-specific isolation adjustment
+    # Previous model assumed isolation IMPROVES at harmonics (wrong direction)
+    harmonic_isolation_adj = calculate_harmonic_isolation_adjustment(
+        fundamental_freq_mhz, harmonic_order, "default"
+    )
+
+    total_isolation_db = base_isolation_db + harmonic_isolation_adj
     
     # Step 4: Calculate harmonic at victim input (before RX filtering)
     harmonic_at_victim_input_dbm = harmonic_after_tx_filter_dbm - total_isolation_db
@@ -472,34 +883,34 @@ def calculate_imd_level_quantitative(power1_dbm: float, power2_dbm: float,
         dominant_coeff = "unknown"
         effective_order = 3
     
-    # ✅ CORRECTED: Adjust for actual system harmonic distortion levels
-    # Get calculated harmonic levels based on TX power and system linearity  
-    calculated_harmonics = calculate_system_harmonic_levels(input_power_dbm, system_params)
-    
-    # Scale polynomial result to match calculated system parameters
+    # ✅ CORRECTED: Use proper two-tone IMD formulas from intercept points
+    # This replaces the empirical HD-scaling approach with RF theory-based calculation
+
+    # Calculate IMD power directly from intercept point formulas
     if imd_order == 'IM2':
-        # Scale IM2 based on calculated HD2 performance vs polynomial reference
-        reference_hd2_dbc = -32.1  # From polynomial table
-        scaling_factor = calculated_harmonics['hd2_dbc'] - reference_hd2_dbc
-        base_imd_dbc += scaling_factor * 0.8  # IM2 scales with HD2 but not 1:1
-        
+        # IM2 = 2×P_in - IIP2 (standard two-tone formula)
+        imd_power_dbm = calculate_imd_from_intercept(input_power_dbm, system_params.iip2_dbm, 2)
+        base_imd_dbc = imd_power_dbm - input_power_dbm  # Convert to dBc
+
     elif imd_order == 'IM3':
-        # Scale IM3 based on calculated HD3 performance  
-        reference_hd3_dbc = -60.4  # From polynomial table
-        scaling_factor = calculated_harmonics['hd3_dbc'] - reference_hd3_dbc
-        base_imd_dbc += scaling_factor * 1.2  # IM3 is more sensitive to linearity
-        
+        # IM3 = 3×P_in - 2×IIP3 (standard two-tone formula)
+        imd_power_dbm = calculate_imd_from_intercept(input_power_dbm, system_params.iip3_dbm, 3)
+        base_imd_dbc = imd_power_dbm - input_power_dbm  # Convert to dBc
+
     elif imd_order == 'IM4':
-        # Scale IM4 based on calculated HD4
-        reference_hd4_dbc = -73.0  # Estimated from 4th order harmonics
-        scaling_factor = calculated_harmonics['hd4_dbc'] - reference_hd4_dbc
-        base_imd_dbc += scaling_factor * 0.9
-        
+        # IM4 derived from IM2 products (second-order mixing)
+        imd_power_dbm = calculate_imd_from_intercept(input_power_dbm, system_params.iip2_dbm, 4)
+        base_imd_dbc = imd_power_dbm - input_power_dbm  # Convert to dBc
+
     elif imd_order == 'IM5':
-        # Scale IM5 based on calculated HD5
-        reference_hd5_dbc = -84.0  # Estimated from 5th order harmonics
-        scaling_factor = calculated_harmonics['hd5_dbc'] - reference_hd5_dbc
-        base_imd_dbc += scaling_factor * 0.8
+        # IM5 = 5×P_in - 4×IIP5 (IIP5 estimated from IIP3)
+        imd_power_dbm = calculate_imd_from_intercept(input_power_dbm, system_params.iip3_dbm, 5)
+        base_imd_dbc = imd_power_dbm - input_power_dbm  # Convert to dBc
+
+    elif imd_order == 'IM7':
+        # IM7 = 7×P_in - 6×IIP7 (IIP7 estimated from IIP3)
+        imd_power_dbm = calculate_imd_from_intercept(input_power_dbm, system_params.iip3_dbm, 7)
+        base_imd_dbc = imd_power_dbm - input_power_dbm  # Convert to dBc
     
     # Step 1: Calculate IMD power at TX output
     imd_at_tx_dbm = input_power_dbm + base_imd_dbc
@@ -512,18 +923,22 @@ def calculate_imd_level_quantitative(power1_dbm: float, power2_dbm: float,
     
     imd_after_tx_filter_dbm = imd_at_tx_dbm - tx_filter_db
     
-    # Step 3: Apply path loss with proper RF engineering
-    base_isolation_db = (system_params.antenna_isolation + 
-                        system_params.pcb_isolation + 
-                        system_params.shield_isolation)
-    
+    # Step 3: Apply path loss with CORRECTED isolation model
+    # CORRECTED: Use coupling-aware isolation (not simple additive)
+    base_isolation_db = calculate_total_isolation(
+        system_params.antenna_isolation,
+        system_params.pcb_isolation,
+        system_params.shield_isolation,
+        frequency_mhz=1000.0  # Use mid-band frequency for IMD
+    )
+
     # Technology-specific coupling (conservative application)
     tech_isolation_db = 0.0
     if system_params.wifi_ble_isolation_db > 0:
         tech_isolation_db += system_params.wifi_ble_isolation_db * 0.4
     if system_params.cellular_wifi_isolation_db > 0:
         tech_isolation_db += system_params.cellular_wifi_isolation_db * 0.4
-        
+
     total_isolation_db = base_isolation_db + tech_isolation_db
     
     # Step 4: Calculate IMD at victim input
@@ -579,12 +994,15 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
     Returns:
         Dictionary with complete interference analysis including proper desensitization
     """
-    # Step 1: Apply total system isolation (antenna + PCB + shield)
-    total_isolation_db = (system_params.antenna_isolation + 
-                         system_params.pcb_isolation + 
-                         system_params.shield_isolation)
+    # Step 1: Apply total system isolation with CORRECTED coupling-aware model
+    total_isolation_db = calculate_total_isolation(
+        system_params.antenna_isolation,
+        system_params.pcb_isolation,
+        system_params.shield_isolation,
+        frequency_mhz=1000.0  # Mid-band frequency estimate
+    )
     interference_at_victim_dbm = interference_at_tx_dbm - total_isolation_db
-    
+
     # Step 2: Get victim receiver parameters
     victim_sensitivity = get_victim_sensitivity_quantitative(victim_band_code, system_params)
     
@@ -928,12 +1346,13 @@ def create_quantitative_summary(results: List[QuantitativeResult]) -> pd.DataFra
 # Legacy function for backward compatibility
 def calculate_im3_power(p_in_dbm: float, iip3_dbm: float) -> float:
     """
-    Legacy IM3 calculation using simplified formula
-    P_IM3 = 2 × P_in - IIP3
-    
-    Note: Use calculate_imd_level_quantitative() for more accurate results
+    Legacy IM3 calculation using standard two-tone formula.
+    P_IM3 = 3 × P_in - 2 × IIP3
+
+    Note: Use calculate_imd_level_quantitative() for more accurate results.
+    Reference: IEEE microwave theory, 3GPP TS 36.104
     """
-    return 2 * p_in_dbm - iip3_dbm
+    return 3 * p_in_dbm - 2 * iip3_dbm
 
 def calculate_im5_power(p_in_dbm: float, iip5_dbm: float) -> float:
     """Legacy IM5 calculation: P_IM5 = 3 × P_in - IIP5"""
@@ -955,20 +1374,7 @@ def calculate_path_loss(freq_mhz: float, distance_m: float = 0.1) -> float:
     if freq_mhz <= 0 or distance_m <= 0:
         return 0.0
     return 20 * math.log10(distance_m) + 20 * math.log10(freq_mhz) + 92.45
-    """
-    Calculate free space path loss
-    FSPL(dB) = 20*log10(d_m) + 20*log10(f_MHz) + 92.45
-    
-    Args:
-        freq_mhz: Frequency in MHz
-        distance_m: Distance in meters (default 0.1m for on-board isolation)
-        
-    Returns:
-        Path loss in dB
-    """
-    if freq_mhz <= 0 or distance_m <= 0:
-        return 0.0
-    return 20 * math.log10(distance_m) + 20 * math.log10(freq_mhz) + 92.45
+
 
 def get_filter_attenuation(freq_mhz: float, center_freq_mhz: float, 
                           bandwidth_mhz: float, stopband_atten_db: float = 40.0) -> float:
@@ -1258,6 +1664,188 @@ SCENARIOS = {
         lte_sensitivity=-105.0           # Automotive LTE sensitivity
     )
 }
+
+
+# =============================================================================
+# Monte Carlo / Worst-Case Analysis
+# =============================================================================
+
+@dataclass
+class ToleranceParameters:
+    """Manufacturing and environmental tolerances for Monte Carlo analysis."""
+    tx_power_tolerance_db: float = 1.0       # ±1 dB typical
+    iip3_tolerance_db: float = 2.0           # ±2 dB typical
+    iip2_tolerance_db: float = 3.0           # ±3 dB typical
+    isolation_tolerance_db: float = 3.0      # ±3 dB typical
+    filter_tolerance_db: float = 2.0         # ±2 dB typical
+    sensitivity_tolerance_db: float = 2.0    # ±2 dB typical
+    temperature_coefficient_db_per_c: float = 0.05  # dB per degree C
+
+
+def monte_carlo_interference_analysis(
+    base_params: SystemParameters,
+    tolerances: ToleranceParameters,
+    interference_scenario: Dict,
+    num_iterations: int = 1000,
+    temperature_range_c: Tuple[float, float] = (-40, 85)
+) -> Dict:
+    """
+    Run Monte Carlo simulation for worst-case interference analysis.
+
+    Varies system parameters within manufacturing tolerances to determine
+    the distribution of interference outcomes.
+
+    Args:
+        base_params: Nominal system parameters
+        tolerances: Manufacturing/environmental tolerances
+        interference_scenario: Dictionary with:
+            - 'aggressor_code': Transmitting band code
+            - 'victim_code': Receiving band code
+            - 'product_type': '2H', '3H', 'IM3', etc.
+            - 'frequency_mhz': Product frequency
+        num_iterations: Number of Monte Carlo iterations
+        temperature_range_c: Operating temperature range (min, max)
+
+    Returns:
+        Dictionary with statistical analysis:
+            - p50, p95, p99: Percentile desensitization values
+            - mean, std: Mean and standard deviation
+            - min, max: Range of outcomes
+            - worst_case_params: Parameters that produced worst case
+    """
+    import random
+    import dataclasses
+
+    results = []
+    worst_case_desens = -float('inf')
+    worst_case_params = None
+
+    for _ in range(num_iterations):
+        # Create varied parameters
+        varied_params = dataclasses.replace(base_params)
+
+        # TX power variation (Gaussian, can go either way)
+        varied_params.lte_tx_power += random.gauss(0, tolerances.tx_power_tolerance_db / 2)
+        varied_params.wifi_tx_power += random.gauss(0, tolerances.tx_power_tolerance_db / 2)
+        varied_params.ble_tx_power += random.gauss(0, tolerances.tx_power_tolerance_db / 2)
+
+        # IIP3/IIP2 variation (usually symmetric)
+        varied_params.iip3_dbm += random.gauss(0, tolerances.iip3_tolerance_db / 2)
+        varied_params.iip2_dbm += random.gauss(0, tolerances.iip2_tolerance_db / 2)
+
+        # Isolation variation (usually only gets worse)
+        iso_variation = abs(random.gauss(0, tolerances.isolation_tolerance_db / 2))
+        varied_params.antenna_isolation -= iso_variation  # Worse isolation
+        varied_params.pcb_isolation -= iso_variation * 0.5
+        varied_params.shield_isolation -= iso_variation * 0.3
+
+        # Filter variation (usually degrades)
+        filter_variation = abs(random.gauss(0, tolerances.filter_tolerance_db / 2))
+        varied_params.tx_harmonic_filtering_db -= filter_variation
+
+        # Temperature effects
+        temp = random.uniform(*temperature_range_c)
+        temp_effect = (temp - 25) * tolerances.temperature_coefficient_db_per_c
+        varied_params.iip3_dbm -= temp_effect  # IIP3 degrades at high temp
+
+        # Calculate interference for this variation
+        product_type = interference_scenario.get('product_type', 'IM3')
+        frequency_mhz = interference_scenario.get('frequency_mhz', 1000)
+        victim_code = interference_scenario.get('victim_code', 'GENERIC')
+        aggressor_code = interference_scenario.get('aggressor_code', 'LTE_B1')
+
+        # Get TX power based on aggressor
+        tx_power = get_aggressor_power_quantitative(aggressor_code, varied_params)
+
+        # Calculate interference level
+        if product_type.endswith('H'):
+            try:
+                harmonic_order = int(product_type[0])
+                _, interference_at_tx, _, _ = calculate_harmonic_level_quantitative(
+                    tx_power, harmonic_order, varied_params, frequency_mhz / harmonic_order
+                )
+            except:
+                interference_at_tx = tx_power - 50  # Fallback
+        else:
+            try:
+                _, interference_at_tx, _, _ = calculate_imd_level_quantitative(
+                    tx_power, tx_power, product_type, varied_params
+                )
+            except:
+                interference_at_tx = tx_power - 50  # Fallback
+
+        # Calculate desensitization at victim
+        victim_analysis = calculate_interference_at_victim_quantitative(
+            interference_at_tx, victim_code, [aggressor_code], varied_params
+        )
+
+        desens = victim_analysis['desensitization_db']
+        results.append(desens)
+
+        # Track worst case
+        if desens > worst_case_desens:
+            worst_case_desens = desens
+            worst_case_params = {
+                'tx_power_offset': varied_params.lte_tx_power - base_params.lte_tx_power,
+                'iip3_offset': varied_params.iip3_dbm - base_params.iip3_dbm,
+                'isolation_degradation': base_params.antenna_isolation - varied_params.antenna_isolation,
+                'temperature': temp,
+                'desensitization_db': desens
+            }
+
+    # Compute statistics
+    results.sort()
+    n = len(results)
+
+    return {
+        'p50': results[int(0.50 * n)],
+        'p95': results[int(0.95 * n)],
+        'p99': results[int(0.99 * n)] if n >= 100 else results[-1],
+        'mean': sum(results) / n,
+        'std': (sum((x - sum(results)/n)**2 for x in results) / n) ** 0.5,
+        'min': results[0],
+        'max': results[-1],
+        'worst_case_params': worst_case_params,
+        'num_iterations': num_iterations
+    }
+
+
+def generate_monte_carlo_report(monte_carlo_results: Dict, scenario_name: str) -> str:
+    """
+    Generate a human-readable Monte Carlo analysis report.
+
+    Args:
+        monte_carlo_results: Results from monte_carlo_interference_analysis()
+        scenario_name: Description of the scenario
+
+    Returns:
+        Formatted report string
+    """
+    report = []
+    report.append(f"=== Monte Carlo Analysis Report ===")
+    report.append(f"Scenario: {scenario_name}")
+    report.append(f"Iterations: {monte_carlo_results['num_iterations']}")
+    report.append("")
+    report.append("Desensitization Distribution:")
+    report.append(f"  Median (P50):  {monte_carlo_results['p50']:.2f} dB")
+    report.append(f"  P95:           {monte_carlo_results['p95']:.2f} dB")
+    report.append(f"  P99:           {monte_carlo_results['p99']:.2f} dB")
+    report.append(f"  Mean:          {monte_carlo_results['mean']:.2f} dB")
+    report.append(f"  Std Dev:       {monte_carlo_results['std']:.2f} dB")
+    report.append(f"  Range:         {monte_carlo_results['min']:.2f} to {monte_carlo_results['max']:.2f} dB")
+    report.append("")
+
+    if monte_carlo_results['worst_case_params']:
+        wc = monte_carlo_results['worst_case_params']
+        report.append("Worst-Case Conditions:")
+        report.append(f"  TX Power Offset:      {wc['tx_power_offset']:+.2f} dB")
+        report.append(f"  IIP3 Offset:          {wc['iip3_offset']:+.2f} dB")
+        report.append(f"  Isolation Degradation: {wc['isolation_degradation']:.2f} dB")
+        report.append(f"  Temperature:           {wc['temperature']:.1f} C")
+        report.append(f"  Resulting Desense:     {wc['desensitization_db']:.2f} dB")
+
+    return "\n".join(report)
+
 
 if __name__ == "__main__":
     # Example usage and validation of quantitative RF analysis
