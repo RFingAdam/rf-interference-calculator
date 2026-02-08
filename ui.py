@@ -3,7 +3,12 @@ import pandas as pd
 import altair as alt
 import traceback
 from bands import BANDS, Band
-from calculator import calculate_all_products, assess_risk_severity
+from calculator import calculate_all_products, assess_risk_severity, calculate_unified_risk, assess_risk_severity_quantitative
+from constants import (
+    VERSION, PRODUCT_TYPE_COLORS, RISK_STYLES, RISK_SORT_ORDER,
+    RISK_LEVELS, RISK_EMOJI_TO_NAME, RISK_COLOR_DOMAIN, RISK_COLOR_RANGE,
+    RISK_EMOJI_DOMAIN, RISK_EMOJI_COLOR_RANGE, RISK_PIE_COLOR_MAP
+)
 from io import BytesIO
 
 # RF Performance Analysis imports
@@ -15,6 +20,7 @@ try:
         SystemParameters,
         calculate_system_harmonic_levels,
         monte_carlo_interference_analysis,
+        monte_carlo_interference_analysis_multi,
         generate_monte_carlo_report,
         ToleranceParameters,
         calculate_interference_at_victim_quantitative
@@ -25,7 +31,7 @@ try:
     RF_PERFORMANCE_AVAILABLE = True
 except ImportError:
     RF_PERFORMANCE_AVAILABLE = False
-    st.warning("⚠️ RF Performance module not available. Basic analysis only.")
+    st.warning("RF Performance module not available. Basic analysis only.")
 
 # Regulatory compliance imports
 try:
@@ -59,7 +65,7 @@ try:
 except ImportError:
     PYPERCLIP_AVAILABLE = False
 
-__version__ = "2.0.0"  # Professional UI Overhaul - dBm/dBc/Compliance Integration
+__version__ = VERSION
 
 # Professional RF Engineering Validation
 MATHEMATICAL_VALIDATION = {
@@ -147,21 +153,7 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
         # Create figure
         fig = go.Figure()
         
-        # Professional color scheme based on product type
-        color_map = {
-            # Harmonics - Progressive severity by order
-            '2H': '#FFD700',     # Gold - 2nd harmonic
-            '3H': '#FFA500',     # Orange - 3rd harmonic 
-            '4H': '#FF6347',     # Tomato - 4th harmonic
-            '5H': '#DC143C',     # Crimson - 5th harmonic
-            
-            # IMD products - Blue family for intermod
-            'IM2': '#87CEEB',    # Sky Blue - IM2
-            'IM3': '#4169E1',    # Royal Blue - IM3
-            'IM4': '#0000CD',    # Medium Blue - IM4
-            'IM5': '#000080',    # Navy - IM5
-            'IM7': '#191970',    # Midnight Blue - IM7
-        }
+        color_map = PRODUCT_TYPE_COLORS
         
         # Extract fundamental references for comparison
         tx_frequencies = set()
@@ -279,7 +271,7 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
             title={
                 'text': "RF Interference Products - Spectrum Analysis",
                 'x': 0.5,
-                'font': {'size': 16, 'color': 'darkblue'}
+                'font': {'size': 16}
             },
             xaxis_title="Frequency (MHz)",
             yaxis_title="Interference Level (dBc)",
@@ -288,24 +280,8 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
                 orientation="v",
                 x=1.02,
                 y=1,
-                font={'size': 10},
-                title="<b>Baseband Intermodulation Products</b><br>" +
-                      "<i>Based on RF Insights theory:</i><br>" +
-                      "V₀ = a₁V + a₂V² + a₃V³ + a₄V⁴ + a₅V⁵<br>" +
-                      "<br>" +
-                      "📍 <b>Band Center Tones</b>:<br>" +
-                      "• Even-order → ACLR zone<br>" +
-                      "• IM3/IM5 close-in → In-band EVM<br>" +
-                      "• Some IM4 → In-band impact<br>" +
-                      "<br>" +
-                      "📍 <b>Band Edge Tones</b>:<br>" +
-                      "• Spread-out distortion patterns<br>" +
-                      "• Mix of in-band and ACLR effects<br>" +
-                      "<br>" +
-                      "🔸 <b>BBHD/Harmonics</b>: nH = aₙVⁿ<br>" +
-                      "🔸 <b>IM2</b>: Beat/envelope (ACLR critical)<br>" +
-                      "🔸 <b>IM3</b>: Close-in mixing (EVM critical)<br>" +
-                      "🔸 <b>IM4+</b>: Mixed in-band/ACLR products"
+                font={'size': 11},
+                title="<b>Product Type</b>"
             ),
             height=600,
             plot_bgcolor='rgba(248,249,250,0.9)',
@@ -318,13 +294,13 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
             showgrid=True, 
             gridwidth=1, 
             gridcolor='lightgray',
-            title_font={'size': 12, 'color': 'darkblue'}
+            title_font={'size': 13}
         )
         fig.update_yaxes(
-            showgrid=True, 
-            gridwidth=1, 
+            showgrid=True,
+            gridwidth=1,
             gridcolor='lightgray',
-            title_font={'size': 12, 'color': 'darkblue'},
+            title_font={'size': 13},
             zeroline=True,
             zerolinewidth=2,
             zerolinecolor='green'
@@ -339,16 +315,9 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
         return None
 
 def highlight_risks(row):
-    """Simple risk highlighting"""
-    risk_colors = {
-        '🔴': 'background-color: #ffebee; color: #c62828; font-weight: bold',
-        '🟠': 'background-color: #fff3e0; color: #ef6c00; font-weight: bold',
-        '🟡': 'background-color: #fffde7; color: #f57f17; font-weight: bold',
-        '🔵': 'background-color: #e3f2fd; color: #1565c0',
-        '✅': 'background-color: #e8f5e8; color: #2e7d32'
-    }
+    """Risk-based row highlighting using centralized styles."""
     risk = row.get('Risk', '✅')
-    style = risk_colors.get(risk, '')
+    style = RISK_STYLES.get(risk, '')
     return [style] * len(row)
 
 
@@ -475,97 +444,48 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Header with professional guidance
-st.title("📡 RF Spectrum Interference Calculator")
-st.markdown("**Professional harmonic & intermodulation analysis for wireless system design**" )
-
-# Professional credentials and validation banner
-col_header1, col_header2, col_header3 = st.columns([2, 1, 1])
-with col_header1:
-    st.markdown(f"""
-    **Harmonic Analysis Tool** | Version {__version__}  
-    """)
-# Consolidated Help & Quick Start
+# Header
+st.title("RF Spectrum Interference Calculator")
+st.caption(f"Professional harmonic & intermodulation analysis for wireless system design | v{__version__}")
 col_help1, col_help2 = st.columns([1, 1])
 
 with col_help1:
-    with st.expander("🚀 Quick Start Guide"):
+    with st.expander("Quick Start Guide"):
         st.markdown("""
-        **📋 Simple 5-Step Process:**
-        1. **📂 Select Categories**: Choose band types (LTE, Wi-Fi, BLE, GNSS) in sidebar
-        2. **🎯 Choose Bands**: Pick specific bands or use regional presets (US LTE, EU LTE, etc.)
-        3. **⚙️ Configure**: Set guard margins and coexistence filtering (PTA/WCI-2)
-        4. **🔬 Analyze**: Enable IMD products (IM2, IM3, harmonics) and calculate
-        5. **📊 Export**: Download results as CSV/Excel with quantitative dBc/dBm data
-        
-        **🔧 Auto-Coexistence Mode:**
-        • Activates automatically with multiple LTE bands selected
-        • Tests each LTE band individually for realistic interference scenarios
-        • Provides separate results for each combination
-        
-        **🛡️ Guard Band Presets:**
-        • **Conservative (1 MHz)**: Standard industry practice
-        • **Moderate (2 MHz)**: Enhanced protection for sensitive receivers  
-        • **Aggressive (5 MHz)**: Maximum protection for GPS/safety-critical apps
+        **5-Step Process:**
+        1. **Select Categories**: Choose band types (LTE, Wi-Fi, BLE, GNSS) in sidebar
+        2. **Choose Bands**: Pick specific bands or use regional presets
+        3. **Configure**: Set guard margins and coexistence filtering (PTA/WCI-2)
+        4. **Analyze**: Enable IMD products (IM2, IM3, harmonics) and calculate
+        5. **Export**: Download results as CSV/Excel with quantitative dBc/dBm data
+
+        **Auto-Coexistence Mode** activates with multiple LTE bands.
+        **Guard Band Presets**: Conservative (1 MHz), Moderate (2 MHz), Aggressive (5 MHz)
         """)
 
 with col_help2:
-    with st.expander("⚖️ Professional Guidelines & Legal"):
+    with st.expander("Professional Guidelines & Legal"):
         st.markdown("""
-        **🎯 Professional Applications:**
-        • **Product Development**: Pre-certification interference analysis
-        • **Field Support**: Troubleshooting interference issues
-        • **Training**: RF interference fundamentals
-        
-        **📊 Analysis Capabilities:**
-        • **70+ Wireless Bands**: LTE, Wi-Fi, BLE, GNSS, ISM, LoRaWAN
-        • **Up to 5th Order**: Complete IMD analysis (IM2, IM3, IM4, IM5, IM7)
-        • **Risk Assessment**: 🔴 Critical → 🟠 High → 🟡 Medium → 🔵 Low → ✅ Safe
-        • **Industry Coordination**: PTA (BLE↔Wi-Fi) and WCI-2 (LTE↔Wi-Fi) filtering
-        
-        **🔬 Mathematical Foundation:**
-        • **Polynomial Model**: V₀ = a₁V + a₂V² + a₃V³ + a₄V⁴ + a₅V⁵
-        • **IEEE Standards**: 802.11, 3GPP compliance analysis
-        • **RF Insights Theory**: Baseband intermodulation validated
-        • **Frequency Range**: 10 MHz - 6 GHz (validated)
-        
-        **⚠️ Professional Disclaimers:**
-        • **Educational/Professional Use**: Theoretical predictions - **validate with measurements**
-        • **MIT Licensed Open Source**: No warranty - **use engineering judgment**
-        • **Not Certified**: Not a regulatory compliance instrument
-        • **Professional Tool**: Requires RF engineering expertise for proper interpretation
-        
-        **🔗 Project Links:**
-        • **GitHub**: [RFingAdam/rf-interference-calculator](https://github.com/RFingAdam/rf-interference-calculator)
-        • **Issues**: [Report bugs and feature requests](https://github.com/RFingAdam/rf-interference-calculator/issues)
-        • **License**: [MIT License](https://github.com/RFingAdam/rf-interference-calculator/blob/main/LICENSE)
-        • **Theory Validation**: [RF_INSIGHTS_VALIDATION.md](https://github.com/RFingAdam/rf-interference-calculator/blob/main/RF_INSIGHTS_VALIDATION.md)
+        **Analysis Capabilities:** 80+ bands, up to 5th order IMD, PTA/WCI-2 filtering
+
+        **Risk Assessment:** Critical > High > Medium > Low > Safe
+
+        **Disclaimers:** Theoretical predictions - validate with measurements.
+        Not a regulatory compliance instrument. AGPL-3.0 licensed.
+
+        **Links:** [GitHub](https://github.com/RFingAdam/rf-interference-calculator) |
+        [Issues](https://github.com/RFingAdam/rf-interference-calculator/issues)
         """)
 
-# Smart Quick Tip based on RF Performance availability
-if RF_PERFORMANCE_AVAILABLE:
-    st.success("🔬 **Quantitative Analysis Ready**: Configure RF system parameters → Select bands → Get dBc/dBm interference levels")
-else:
-    st.info("💡 **Basic Analysis Mode**: Select band categories → Choose bands → Calculate interference products")
-
-# Enhanced status indicator with validation
-status_col1, status_col2, status_col3, status_col4 = st.columns([2, 1, 1, 1])
-with status_col1:
-    st.caption(f"Version {__version__} - Professional RF Analysis Tool")
-with status_col2:
-    st.success("🟢 **System Ready**")
-with status_col3:
-    st.info(f"📊 **{len(BANDS)} Bands**")
-with status_col4:
-    if MATHEMATICAL_VALIDATION["validation_status"]:
-        st.success("✅ **Validated**")
+if not RF_PERFORMANCE_AVAILABLE:
+    st.info("Basic analysis mode. Install rf_performance dependencies for quantitative dBc/dBm analysis.")
 
 # Sidebar
 with st.sidebar:
-    st.header("⚙️ Configuration")
-    
+    st.header("Configuration")
+
     # Guard Band Settings with Professional Presets
-    st.subheader("🛡️ Guard Band Settings")
+    st.subheader("Guard Band Settings")
     guard_preset = st.selectbox(
         "Guard Band Preset:",
         ["No Guard (0 MHz)", "Conservative (1 MHz)", "Moderate (2 MHz)", "Aggressive (5 MHz)", "Custom"],
@@ -587,10 +507,10 @@ with st.sidebar:
     
     # Show current guard value
     if guard > 0:
-        st.info(f"🛡️ Active Guard: ±{guard} MHz protection margin")
+        st.info(f"Active Guard: ±{guard} MHz protection margin")
     
     # Categories
-    st.subheader("📂 Band Categories")
+    st.subheader("Band Categories")
     all_categories = sorted(set(band.category for band in BANDS.values()))
     selected_categories = st.multiselect(
         "Select categories:",
@@ -600,36 +520,35 @@ with st.sidebar:
     )
     
     # Export options
-    st.subheader("📥 Export")
+    st.subheader("Export")
     include_safe = st.checkbox("Include safe products", False)
     
     # Display options
-    st.subheader("📊 Display")
+    st.subheader("Display")
     show_all_results = st.checkbox("Show all results", True, help="Show all results with risk-based color coding (uncheck to filter to only critical/medium risk)")  # Changed default to True
     max_results = st.slider("Max results to show", 50, 1000, 200, 50, help="Limit table size for performance")
     
     # Professional Coexistence Controls
-    st.subheader("🔧 Coexistence Implementation")
-    st.markdown("**Real-world coordination mechanisms:**")
+    st.subheader("Coexistence Implementation")
     
     # PTA Implementation
     pta_enabled = st.checkbox("PTA (Packet Transfer Arbitration) Implemented", value=False,
                              help="Enable if PTA is implemented for 2.4 GHz ISM coordination (BLE + Wi-Fi)")
     if pta_enabled:
-        st.success("✅ PTA active - ISM band coordination products filtered")
+        st.success("PTA active - ISM band coordination products filtered")
     
     # WCI-2 Implementation  
     wci2_enabled = st.checkbox("WCI-2 Interface Implemented", value=False,
                               help="Enable if WCI-2 interface is implemented for LTE↔Wi-Fi coordination (GNSS interference remains visible)")
     if wci2_enabled:
-        st.success("✅ WCI-2 active - LTE→Wi-Fi interference filtered (keeps GNSS visible)")
+        st.success("WCI-2 active - LTE to Wi-Fi interference filtered (GNSS remains visible)")
     
     # Advanced filtering when coordination is active
     filter_ism_products = True  # Default values
     filter_lte_harmonics = True
     
     if pta_enabled or wci2_enabled:
-        with st.expander("🔧 Advanced Coexistence Filtering"):
+        with st.expander("Advanced Coexistence Filtering"):
             filter_ism_products = st.checkbox("Filter ISM IM products when PTA active", value=True,
                                              help="Remove IM products between BLE and Wi-Fi 2.4G when PTA coordinates them",
                                              disabled=not pta_enabled)
@@ -648,8 +567,7 @@ with st.sidebar:
 
     # RF System Parameters for Quantitative Analysis
     if RF_PERFORMANCE_AVAILABLE:
-        st.subheader("📊 RF System Parameters")
-        st.markdown("**Configure system for quantitative dBc/dBm analysis**")
+        st.subheader("RF System Parameters")
         
         # Smart parameter selection based on selected bands
         selected_techs = set()
@@ -668,18 +586,15 @@ with st.sidebar:
         # Technology-aware preset recommendation
         if selected_techs:
             tech_list = ', '.join(selected_techs)
-            st.info(f"🎯 **Detected Technologies**: {tech_list}")
-            
-            # Smart preset recommendation with professional focus
+            st.caption(f"Detected: {tech_list}")
+
+            # Smart preset recommendation
             if 'GNSS' in selected_techs and 'LTE' in selected_techs:
                 recommended_preset = "desktop_professional"
-                st.success("🎯 **GNSS + LTE detected**: Using Desktop Professional parameters for realistic interference analysis")
             elif len(selected_techs) > 2:
                 recommended_preset = "desktop_professional"
-                st.info("💡 **Multi-radio system**: Desktop Professional preset recommended")
             elif 'LTE' in selected_techs and any(coex in selected_techs for coex in ['WiFi', 'BLE']):
                 recommended_preset = "desktop_professional"
-                st.info("💡 **LTE Coexistence system**: Desktop Professional preset recommended")
             elif 'LTE' in selected_techs:
                 recommended_preset = "mobile_device_typical"
             else:
@@ -698,15 +613,14 @@ with st.sidebar:
             "custom"
         ]
         
-        # User-friendly display names with technical specifications
         preset_display_names = {
-            "desktop_professional": "🖥️ Desktop Professional (LTE:23dBm, WiFi:20dBm, BLE:20dBm, Isolation:25dB, Sensitivity:-105dBm)",
-            "mobile_device_typical": "📱 Mobile Device - Typical (LTE:23dBm, WiFi:16dBm, BLE:10dBm, Isolation:15dB, Sensitivity:-100dBm)",
-            "mobile_device_poor": "📱 Mobile Device - Poor Isolation (LTE:23dBm, WiFi:14dBm, BLE:8dBm, Isolation:10dB, Sensitivity:-95dBm)",
-            "iot_device_typical": "⚡ IoT Device - Typical (LTE:20dBm, WiFi:14dBm, BLE:4dBm, Isolation:10dB, Sensitivity:-95dBm)",
-            "base_station": "📡 Base Station (LTE:43dBm, WiFi:24dBm, BLE:20dBm, Isolation:40dB, Sensitivity:-110dBm)",
-            "laboratory_reference": "🔬 Laboratory Reference (LTE:23dBm, WiFi:20dBm, BLE:20dBm, Isolation:40dB, Sensitivity:-110dBm)",
-            "custom": "⚙️ Custom Parameters (User-defined)"
+            "desktop_professional": "Desktop Professional (LTE:23, WiFi:20, BLE:20 dBm, Iso:25dB)",
+            "mobile_device_typical": "Mobile Device - Typical (LTE:23, WiFi:16, BLE:10 dBm, Iso:15dB)",
+            "mobile_device_poor": "Mobile Device - Poor Isolation (LTE:23, WiFi:14, BLE:8 dBm, Iso:10dB)",
+            "iot_device_typical": "IoT Device - Typical (LTE:20, WiFi:14, BLE:4 dBm, Iso:10dB)",
+            "base_station": "Base Station (LTE:43, WiFi:24, BLE:20 dBm, Iso:40dB)",
+            "laboratory_reference": "Laboratory Reference (LTE:23, WiFi:20, BLE:20 dBm, Iso:40dB)",
+            "custom": "Custom Parameters"
         }
         
         # Set default index to recommended preset
@@ -722,41 +636,38 @@ with st.sidebar:
         
         if system_preset != "custom":
             rf_params = RF_SYSTEM_PRESETS[system_preset]
-            st.success(f"✅ Using {system_preset.replace('_', ' ').title()} preset")
-            
             # Show key parameters with technology-specific highlights
-            with st.expander("📋 System Parameters (Click to view details)"):
+            with st.expander("System Parameters Details"):
                 param_col1, param_col2 = st.columns(2)
                 
                 with param_col1:
-                    st.write(f"**🔌 TX Power Levels:**")
+                    st.write("**TX Power Levels:**")
                     if 'LTE' in selected_techs:
-                        st.write(f"• LTE TX: **{rf_params.lte_tx_power} dBm** 📡")
+                        st.write(f"- LTE TX: **{rf_params.lte_tx_power} dBm**")
                     if 'WiFi' in selected_techs:
-                        st.write(f"• Wi-Fi TX: **{rf_params.wifi_tx_power} dBm** 📶")
+                        st.write(f"- Wi-Fi TX: **{rf_params.wifi_tx_power} dBm**")
                     if 'BLE' in selected_techs:
-                        st.write(f"• BLE TX: **{rf_params.ble_tx_power} dBm** 🔵")
-                    
-                    st.write(f"**🛡️ Isolation & Filtering:**")
-                    st.write(f"• Antenna Isolation: **{rf_params.antenna_isolation} dB**")
-                    st.write(f"• TX Harmonic Filter: **{rf_params.tx_harmonic_filtering_db} dB**")
+                        st.write(f"- BLE TX: **{rf_params.ble_tx_power} dBm**")
+
+                    st.write("**Isolation & Filtering:**")
+                    st.write(f"- Antenna Isolation: **{rf_params.antenna_isolation} dB**")
+                    st.write(f"- TX Harmonic Filter: **{rf_params.tx_harmonic_filtering_db} dB**")
                 
                 with param_col2:
-                    st.write(f"**📊 System Linearity:**")
-                    st.write(f"• IIP3: **{rf_params.iip3_dbm} dBm** (3rd order)")
-                    st.write(f"• IIP2: **{rf_params.iip2_dbm} dBm** (2nd order)")
-                    st.write(f"• PA Class: **{rf_params.pa_class}**")
-                    
-                    # Calculate and show HD levels for LTE power
+                    st.write("**System Linearity:**")
+                    st.write(f"- IIP3: **{rf_params.iip3_dbm} dBm** (3rd order)")
+                    st.write(f"- IIP2: **{rf_params.iip2_dbm} dBm** (2nd order)")
+                    st.write(f"- PA Class: **{rf_params.pa_class}**")
+
                     if RF_PERFORMANCE_AVAILABLE:
                         calculated_hd = calculate_system_harmonic_levels(rf_params.lte_tx_power, rf_params)
-                        st.write(f"**📊 Calculated HD Levels (@ {rf_params.lte_tx_power} dBm):**")
-                        st.write(f"• HD2: **{calculated_hd['hd2_dbc']:.1f} dBc** ✅")
-                        st.write(f"• HD3: **{calculated_hd['hd3_dbc']:.1f} dBc** ✅")
-                        st.write(f"• HD4: **{calculated_hd['hd4_dbc']:.1f} dBc** ✅")
-                        st.write(f"• HD5: **{calculated_hd['hd5_dbc']:.1f} dBc** ✅")
-                    
-                    st.write(f"**📡 RX Sensitivities:**")
+                        st.write(f"**Calculated HD Levels (@ {rf_params.lte_tx_power} dBm):**")
+                        st.write(f"- HD2: **{calculated_hd['hd2_dbc']:.1f} dBc**")
+                        st.write(f"- HD3: **{calculated_hd['hd3_dbc']:.1f} dBc**")
+                        st.write(f"- HD4: **{calculated_hd['hd4_dbc']:.1f} dBc**")
+                        st.write(f"- HD5: **{calculated_hd['hd5_dbc']:.1f} dBc**")
+
+                    st.write("**RX Sensitivities:**")
                     if 'LTE' in selected_techs:
                         st.write(f"• LTE RX: **{rf_params.lte_sensitivity} dBm**")
                     if 'WiFi' in selected_techs:
@@ -764,14 +675,13 @@ with st.sidebar:
                     if 'BLE' in selected_techs:
                         st.write(f"• BLE RX: **{rf_params.ble_sensitivity} dBm**")
                     if 'GNSS' in selected_techs:
-                        st.write(f"• GNSS RX: **{rf_params.gnss_sensitivity} dBm** ⚠️")
+                        st.write(f"- GNSS RX: **{rf_params.gnss_sensitivity} dBm**")
         else:
             # Custom parameters with comprehensive RF system controls
-            st.markdown("**🔧 Custom RF System Parameters:**")
-            st.markdown("*Configure all isolation, filtering, and system characteristics*")
+            st.markdown("**Custom RF System Parameters**")
             
             # TX Power settings
-            st.markdown("**🔌 Transmit Power Levels**")
+            st.markdown("**Transmit Power Levels**")
             tx_col1, tx_col2, tx_col3 = st.columns(3)
             
             with tx_col1:
@@ -785,8 +695,7 @@ with st.sidebar:
                                         help="BLE/Bluetooth transmit power", disabled='BLE' not in selected_techs)
             
             # RF System Isolation & Path Loss (Most Important Section)
-            st.markdown("**🛡️ RF System Isolation & Filtering**")
-            st.markdown("*These parameters dramatically affect interference levels*")
+            st.markdown("**RF System Isolation & Filtering**")
             
             iso_col1, iso_col2, iso_col3 = st.columns(3)
             
@@ -808,16 +717,17 @@ with st.sidebar:
             
             with iso_col3:
                 # Technology-specific isolation
-                custom_lte_gnss_coupling = st.slider("LTE→GNSS Coupling (dB)", -20, 0, -10, 
+                custom_lte_gnss_coupling = st.slider("LTE→GNSS Coupling (dB)", -20, 0, -10,
                                                     help="Additional LTE→GNSS coupling loss (negative = additional isolation)")
-                custom_wifi_ble_isolation = st.slider("Wi-Fi/BLE Isolation (dB)", 5, 30, 10, 
+                custom_wifi_ble_isolation = st.slider("Wi-Fi/BLE Isolation (dB)", 5, 30, 10,
                                                      help="Wi-Fi/BLE triplexer isolation")
-                custom_cellular_wifi_isolation = st.slider("Cellular/Wi-Fi Isolation (dB)", 5, 30, 15, 
+                custom_cellular_wifi_isolation = st.slider("Cellular/Wi-Fi Isolation (dB)", 5, 30, 15,
                                                           help="Cellular/Wi-Fi isolation")
+                custom_coupling_factor = st.slider("Coupling Factor", 0.0, 1.0, 0.3, 0.05,
+                                                   help="EM coupling factor for total isolation model (0=no coupling, 1=full coupling)")
             
             # ✅ CORRECTED: System Linearity Parameters (RF Engineering Approach)
-            st.markdown("**📊 System Linearity Characteristics**")
-            st.markdown("*Real RF engineering parameters - HD levels calculated from these*")
+            st.markdown("**System Linearity Characteristics**")
             
             nl_col1, nl_col2, nl_col3 = st.columns(3)
             
@@ -844,13 +754,13 @@ with st.sidebar:
                         bias_point_optimized=custom_bias_optimized
                     )
                     calc_hd = calculate_system_harmonic_levels(23.0, temp_params)  # Use 23 dBm reference
-                    st.write(f"HD2: **{calc_hd['hd2_dbc']:.1f} dBc** ✅")
-                    st.write(f"HD3: **{calc_hd['hd3_dbc']:.1f} dBc** ✅") 
-                    st.write(f"HD4: **{calc_hd['hd4_dbc']:.1f} dBc** ✅")
-                    st.write(f"HD5: **{calc_hd['hd5_dbc']:.1f} dBc** ✅")
+                    st.write(f"HD2: **{calc_hd['hd2_dbc']:.1f} dBc**")
+                    st.write(f"HD3: **{calc_hd['hd3_dbc']:.1f} dBc**")
+                    st.write(f"HD4: **{calc_hd['hd4_dbc']:.1f} dBc**")
+                    st.write(f"HD5: **{calc_hd['hd5_dbc']:.1f} dBc**")
             
             # Receiver sensitivities
-            st.markdown("**📡 Receiver Sensitivities**")
+            st.markdown("**Receiver Sensitivities**")
             rx_col1, rx_col2, rx_col3, rx_col4 = st.columns(4)
             
             with rx_col1:
@@ -895,6 +805,9 @@ with st.sidebar:
                 pa_class=custom_pa_class,
                 bias_point_optimized=custom_bias_optimized,
                 
+                # Coupling Factor
+                coupling_factor=custom_coupling_factor,
+
                 # Receiver Sensitivities
                 lte_sensitivity=custom_lte_sens,
                 wifi_sensitivity=custom_wifi_sens,
@@ -902,17 +815,11 @@ with st.sidebar:
                 gnss_sensitivity=custom_gnss_sens
             )
             
-            st.success("✅ Custom parameters configured - All isolation and filtering applied")
+            st.success("Custom parameters configured")
             
             # Show key isolation summary
             total_isolation_est = custom_antenna_isolation + custom_pcb_isolation + custom_shield_isolation
-            st.info(f"""
-            **🔍 Isolation Summary:**
-            • Total Physical Isolation: ~{total_isolation_est:.0f} dB
-            • TX Filtering: {custom_tx_filter} dB (harmonics)
-            • RX Filtering: {custom_rx_filter + custom_oob_rejection} dB (total)
-            • **Net Effect**: Harmonics reduced by {total_isolation_est + custom_tx_filter:.0f}+ dB
-            """)
+            st.caption(f"Isolation: ~{total_isolation_est:.0f} dB | TX Filter: {custom_tx_filter} dB | RX Filter: {custom_rx_filter + custom_oob_rejection} dB | Net harmonic reduction: {total_isolation_est + custom_tx_filter:.0f}+ dB")
         
         # Store in session state
         st.session_state['rf_params'] = rf_params
@@ -921,39 +828,38 @@ with st.sidebar:
         total_isolation = rf_params.antenna_isolation + rf_params.pcb_isolation + rf_params.shield_isolation
         
         if total_isolation < 30:
-            st.warning("⚠️ **Low Total Isolation Warning**: Total isolation < 30 dB may cause significant interference")
+            st.warning("**Low Total Isolation**: < 30 dB may cause significant interference")
         
         if rf_params.tx_harmonic_filtering_db < 30:
-            st.warning("🔧 **TX Filtering Warning**: TX harmonic filtering < 30 dB - harmonics may be strong")
+            st.warning("**TX Filtering**: < 30 dB - harmonics may be strong")
         
         if 'GNSS' in selected_techs and rf_params.lte_tx_power > 20:
-            st.warning("🛰️ **GNSS Critical Warning**: High LTE TX power + GNSS = potential GPS dead zones!")
+            st.warning("**GNSS Warning**: High LTE TX power + GNSS = potential GPS dead zones")
         
         # ✅ CORRECTED: Validate calculated linearity instead of fixed HD levels
         if rf_params.iip3_dbm > -5:
-            st.warning("📊 **Linearity Warning**: IIP3 > -5 dBm indicates poor system linearity")
+            st.warning("**Linearity Warning**: IIP3 > -5 dBm indicates poor system linearity")
         
         if rf_params.iip2_dbm < 10:
-            st.warning("⚖️ **Balance Warning**: IIP2 < 10 dBm indicates poor device balance")
+            st.warning("**Balance Warning**: IIP2 < 10 dBm indicates poor device balance")
 
 # Main Interface
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    # Band selection
-    st.subheader("📋 Band Selection")
+    st.subheader("Band Selection")
     
     # Get filtered bands first (needed for presets)
     filtered_bands = [band for band in BANDS.values() if band.category in selected_categories]
     
     # Quick Select Presets - Regional LTE + Coexistence
-    st.markdown("**🌍 Regional LTE Presets** *(Telit LE910C1-WWXD Cat-1 Modem)*")
+    st.markdown("**Regional LTE Presets**")
     
     # Regional LTE presets (2 columns)
     preset_col1, preset_col2 = st.columns(2)
     
     with preset_col1:
-        if st.button("🇺🇸 US LTE", help="Add B2,B4,B5,B12,B13,B14,B17,B25,B26", key="us_lte_preset"):
+        if st.button("US LTE", help="Add B2,B4,B5,B12,B13,B14,B17,B25,B26", key="us_lte_preset"):
             preset_bands = ["LTE_B2", "LTE_B4", "LTE_B5", "LTE_B12", "LTE_B13", "LTE_B14", "LTE_B17", "LTE_B25", "LTE_B26"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -961,7 +867,7 @@ with col1:
             st.session_state['band_multiselect_widget'] = combined_selection
             st.rerun()
         
-        if st.button("🇦🇺 AU/NZ LTE", help="Add B1,B3,B5,B7,B8,B28", key="aunz_lte_preset"):
+        if st.button("AU/NZ LTE", help="Add B1,B3,B5,B7,B8,B28", key="aunz_lte_preset"):
             preset_bands = ["LTE_B1", "LTE_B3", "LTE_B5", "LTE_B7", "LTE_B8", "LTE_B28"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -969,7 +875,7 @@ with col1:
             st.session_state['band_multiselect_widget'] = combined_selection
             st.rerun()
         
-        if st.button("🇹🇼 Taiwan LTE", help="Add B1,B3,B7,B8,B28", key="tw_lte_preset"):
+        if st.button("Taiwan LTE", help="Add B1,B3,B7,B8,B28", key="tw_lte_preset"):
             preset_bands = ["LTE_B1", "LTE_B3", "LTE_B7", "LTE_B8", "LTE_B28"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -978,7 +884,7 @@ with col1:
             st.rerun()
     
     with preset_col2:
-        if st.button("🇪🇺 EU LTE", help="Add B1,B3,B7,B8,B20,B28", key="eu_lte_preset"):
+        if st.button("EU LTE", help="Add B1,B3,B7,B8,B20,B28", key="eu_lte_preset"):
             preset_bands = ["LTE_B1", "LTE_B3", "LTE_B7", "LTE_B8", "LTE_B20", "LTE_B28"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -986,7 +892,7 @@ with col1:
             st.session_state['band_multiselect_widget'] = combined_selection
             st.rerun()
         
-        if st.button("🇯🇵 Japan LTE", help="Add B1,B3,B8,B11,B19,B28", key="jp_lte_preset"):
+        if st.button("Japan LTE", help="Add B1,B3,B8,B11,B19,B28", key="jp_lte_preset"):
             preset_bands = ["LTE_B1", "LTE_B3", "LTE_B8", "LTE_B11", "LTE_B19", "LTE_B28"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -994,7 +900,7 @@ with col1:
             st.session_state['band_multiselect_widget'] = combined_selection
             st.rerun()
         
-        if st.button("🇰🇷 Korea LTE", help="Add B1,B3,B7,B8,B26", key="kr_lte_preset"):
+        if st.button("Korea LTE", help="Add B1,B3,B7,B8,B26", key="kr_lte_preset"):
             preset_bands = ["LTE_B1", "LTE_B3", "LTE_B7", "LTE_B8", "LTE_B26"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -1003,11 +909,11 @@ with col1:
             st.rerun()
     
     # Coexistence & Technology Presets
-    st.markdown("**📡 Coexistence & Technology Presets**")
+    st.markdown("**Coexistence & Technology Presets**")
     coex_col1, coex_col2, coex_col3 = st.columns(3)
     
     with coex_col1:
-        if st.button("🛰️ GNSS All", help="Add GNSS L1/L2/L5 (GPS/Galileo/GLONASS)", key="gnss_preset"):
+        if st.button("GNSS All", help="Add GNSS L1/L2/L5 (GPS/Galileo/GLONASS)", key="gnss_preset"):
             preset_bands = ["GNSS_L1", "GNSS_L2", "GNSS_L5"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -1015,7 +921,7 @@ with col1:
             st.session_state['band_multiselect_widget'] = combined_selection
             st.rerun()
         
-        if st.button("📶 Wi-Fi All", help="Add 2.4G + 5G + 6E", key="wifi_preset"):
+        if st.button("Wi-Fi All", help="Add 2.4G + 5G + 6E", key="wifi_preset"):
             preset_bands = ["WiFi_2G", "WiFi_5G", "WiFi_6E"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -1024,7 +930,7 @@ with col1:
             st.rerun()
     
     with coex_col2:
-        if st.button("🔵 BLE + ISM", help="Add BLE + ISM 2.4G", key="ble_ism_preset"):
+        if st.button("BLE + ISM", help="Add BLE + ISM 2.4G", key="ble_ism_preset"):
             preset_bands = ["BLE", "ISM_24"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -1032,7 +938,7 @@ with col1:
             st.session_state['band_multiselect_widget'] = combined_selection
             st.rerun()
         
-        if st.button("⚡ IoT Stack", help="Add BLE + LoRaWAN + Wi-Fi 2.4G", key="iot_preset"):
+        if st.button("IoT Stack", help="Add BLE + LoRaWAN + Wi-Fi 2.4G", key="iot_preset"):
             preset_bands = ["BLE", "LoRa_EU", "LoRa_US", "WiFi_2G"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -1041,7 +947,7 @@ with col1:
             st.rerun()
     
     with coex_col3:
-        if st.button("🚨 Critical GPS", help="Add GNSS L1 (most sensitive)", key="gps_critical_preset"):
+        if st.button("Critical GPS", help="Add GNSS L1 (most sensitive)", key="gps_critical_preset"):
             preset_bands = ["GNSS_L1"]
             current_selection = st.session_state.get('band_multiselect_widget', [])
             available_bands_filtered = [b for b in preset_bands if b in [band.code for band in filtered_bands]]
@@ -1049,7 +955,7 @@ with col1:
             st.session_state['band_multiselect_widget'] = combined_selection
             st.rerun()
         
-        if st.button("🗑️ Clear All", help="Clear all selected bands", key="clear_bands"):
+        if st.button("Clear All", help="Clear all selected bands", key="clear_bands"):
             st.session_state['band_multiselect_widget'] = []
             st.rerun()
     
@@ -1108,7 +1014,7 @@ with col1:
 
 with col2:
     # Selected bands summary
-    st.subheader("🎯 Selected Bands")
+    st.subheader("Selected Bands")
     if available_bands:
         selected_band_objs = [BANDS[code] for code in available_bands]
         
@@ -1118,7 +1024,7 @@ with col2:
         auto_coex_mode = len(lte_bands) > 1
         
         if auto_coex_mode:
-            st.info("🔬 **Auto-Coexistence Mode**: Testing each LTE band individually")
+            st.info("**Auto-Coexistence Mode**: Testing each LTE band individually")
             st.text(f"• {len(lte_bands)} LTE bands")
             st.text(f"• {len(coex_radios)} coexistence radios")
         
@@ -1143,11 +1049,11 @@ with col2:
         
         recommendations = []
         if ble_present and wifi_present:
-            recommendations.append("🔄 **Critical**: BLE + Wi-Fi → PTA required for 2.4 GHz coordination")
+            recommendations.append("**Critical**: BLE + Wi-Fi - PTA required for 2.4 GHz coordination")
         if lte_present and wifi_present:
-            recommendations.append("📡 **Recommended**: WCI-2 interface for LTE↔Wi-Fi coordination")
+            recommendations.append("**Recommended**: WCI-2 interface for LTE/Wi-Fi coordination")
         elif lte_present and ble_present:
-            recommendations.append("📡 **Consider**: WCI-2 interface for LTE↔BLE coordination (implementation varies)")
+            recommendations.append("**Consider**: WCI-2 interface for LTE/BLE coordination (implementation varies)")
         
         if recommendations:
             st.info("**Coexistence Recommendations:**\n\n" + "\n".join(f"• {rec}" for rec in recommendations))
@@ -1156,8 +1062,7 @@ with col2:
 
 # Analysis Configuration
 st.markdown("---")
-st.subheader("🔬 Comprehensive IMD Analysis Configuration")
-st.markdown("**Professional intermodulation analysis up to 5th order non-linearity**")
+st.subheader("IMD Analysis Configuration")
 
 # Default configuration
 default_harmonics = True
@@ -1172,8 +1077,7 @@ default_envelope_hd = False
 col_config1, col_config2, col_config3 = st.columns(3)
 
 with col_config1:
-    st.markdown("#### 🎵 Harmonic Products")
-    st.markdown("*Single tone harmonics: nH*")
+    st.markdown("#### Harmonic Products")
     harmonics_enabled = st.checkbox("Enable Harmonics", default_harmonics, help="2H, 3H, 4H, 5H harmonic generation")
     
     if harmonics_enabled:
@@ -1187,8 +1091,7 @@ with col_config1:
         harmonic_orders = []
 
 with col_config2:
-    st.markdown("#### ⚡ Even-Order IMD Products")
-    st.markdown("*f₁±f₂, envelope terms*")
+    st.markdown("#### Even-Order IMD Products")
     
     # IM2 (Beat/Envelope) - Most critical even-order
     imd2_enabled = st.checkbox("IM2 Beat Terms (f₁±f₂)", default_imd2, help="Second-order: Beat/envelope products")
@@ -1200,8 +1103,7 @@ with col_config2:
     envelope_hd_enabled = st.checkbox("Envelope Harmonics", default_envelope_hd, help="HD2 of envelope: 2(f₁±f₂)")
 
 with col_config3:
-    st.markdown("#### 🔥 Odd-Order IMD Products")  
-    st.markdown("*2f₁±f₂, close-in spurs*")
+    st.markdown("#### Odd-Order IMD Products")
     
     # IM3 Products - Most critical for close-in interference
     imd3_enabled = st.checkbox("IM3 Products (2f₁±f₂)", default_imd3, help="Third-order: Close-in intermodulation")
@@ -1214,7 +1116,7 @@ with col_config3:
 
         # Show what will be calculated
 if any([harmonics_enabled, imd2_enabled, imd3_enabled, imd4_enabled, imd5_enabled, imd7_enabled, envelope_hd_enabled]):
-    with st.expander("📋 Analysis Summary"):
+    with st.expander("Analysis Summary"):
         products = []
         if harmonics_enabled and harmonic_orders:
             products.append(f"**Harmonics (BBHD)**: {', '.join(harmonic_orders)} - Baseband harmonic distortion")
@@ -1234,34 +1136,7 @@ if any([harmonics_enabled, imd2_enabled, imd3_enabled, imd4_enabled, imd5_enable
         if products:
             st.info("**Products to Calculate:**\n\n" + "\n".join(f"• {p}" for p in products))
             
-            # Enhanced mathematical insight based on RF Insights baseband theory
-            st.markdown("""
-            **💡 RF Insights - Baseband Tone Intermodulation Theory**: 
-            
-            **📍 Case #1: Band Center Tones**
-            - **2nd order** (BBHD2 & IMD2): Fall in ACLR zone → Adjacent channel interference
-            - **3rd order** (BBHD3 & IMD3): Fall in ACLR zone → ACLR degradation  
-            - **4th order** (BBHD4 & IMD4): Fall in ACLR zone → Out-of-band emissions
-            - **5th order** (BBHD5 & IMD5): Fall in ACLR zone → Regulatory compliance issues
-            - **IM3 & IM5 close-in products**: Fall **in-band** → **EVM degradation** ⚠️
-            - **Some IMD4 products**: Can fall in-band → Signal quality impact
-            
-            **📍 Case #2: Band Edge Tones**  
-            - **Spread-out distortion**: Mix of in-band and out-of-band products
-            - **Even/odd order mixing**: Complex interference patterns across spectrum
-            - **Wideband effect**: More products land in victim receiver bands
-            
-            **🔬 Mathematical Foundation:**
-            - **System Model**: V₀ = a₀ + a₁Vᵢ + a₂Vᵢ² + a₃Vᵢ³ + a₄Vᵢ⁴ + a₅Vᵢ⁵
-            - **Two-tone Input**: Vᵢ = V₁cos(ω₁t) + V₂cos(ω₂t)  
-            - **Key Insight**: **All products either fall in-band (EVM impact) or very close (ACLR impact)**
-            - **ACLR Contributors**: Baseband emissions are **top contributors** to ACLR degradation
-            
-            **⚠️ Critical Design Implications:**
-            - **IM3/IM5 close-in**: Direct EVM degradation → Signal quality loss
-            - **Even-order products**: ACLR zone interference → Regulatory/coexistence issues  
-            - **Band position matters**: Center vs. edge fundamentally changes product distribution
-            """)# Calculate Button with enhanced logic and validation
+            st.caption("Based on 5th-order polynomial nonlinearity model. See Mathematical Formulas section for details.")# Calculate Button with enhanced logic and validation
 enabled_products = sum([
     len(harmonic_orders) if harmonics_enabled else 0,
     int(imd2_enabled), int(imd3_enabled), int(imd4_enabled), 
@@ -1271,7 +1146,7 @@ calculation_ready = len(available_bands) > 0 and enabled_products > 0
 
 # Professional calculation section
 st.markdown("---")
-st.subheader("🚀 Professional RF Analysis")
+st.subheader("Analysis")
 
 if calculation_ready:
     # Pre-calculation validation
@@ -1285,26 +1160,24 @@ if calculation_ready:
     
     # Show validation results
     if errors:
-        st.error("❌ **Configuration Errors** - Must be resolved before calculation:")
+        st.error("**Configuration Errors** - Must be resolved before calculation:")
         for error in errors:
             st.error(f"• {error}")
         calculation_ready = False
     
     if warnings:
-        with st.expander("⚠️ Configuration Warnings (Click to view)", expanded=False):
-            st.warning("**Professional Review Recommended:**")
+        with st.expander("Configuration Warnings", expanded=False):
             for warning in warnings:
-                st.warning(f"• {warning}")
-            st.info("💡 These warnings don't prevent calculation but may indicate non-optimal configurations")
+                st.warning(f"- {warning}")
 
-if st.button("🚀 Calculate Interference", type="primary", use_container_width=True, disabled=not calculation_ready):
+if st.button("Calculate Interference", type="primary", use_container_width=True, disabled=not calculation_ready):
     if not calculation_ready:
-        st.error("❌ Please select bands and enable analysis products")
+        st.error("Please select bands and enable analysis products")
     else:
         with st.spinner("Calculating interference products..."):
             if auto_coex_mode:
                 # Individual LTE band processing
-                st.info("🔬 Processing each LTE band individually...")
+                st.info("Processing each LTE band individually...")
                 all_results = []
                 
                 for lte_band in lte_bands:
@@ -1388,8 +1261,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
             
             # Calculator already provides risk assessment, just sort by risk
             if 'Risk' in results.columns:
-                risk_order = {'🔴': 0, '🟠': 1, '🟡': 2, '🔵': 3, '✅': 4}
-                results['_risk_order'] = results['Risk'].map(risk_order).fillna(4)  # Default to safe
+                results['_risk_order'] = results['Risk'].map(RISK_SORT_ORDER).fillna(4)
                 results = results.sort_values(['_risk_order', 'Frequency']).drop('_risk_order', axis=1)
             
             # Apply professional coexistence filtering
@@ -1481,7 +1353,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                 # Show filtering summary
                 filtered_count = original_count - len(results)
                 if filtered_count > 0:
-                    st.info(f"🔧 **Industry-Standard Coexistence Filtering Applied**: {filtered_count} products filtered " +
+                    st.info(f"**Coexistence Filtering Applied**: {filtered_count} products filtered " +
                            f"(PTA ISM coordination: {pta_filtered_count}, WCI-2 LTE coordination: {wci2_filtered_count})")
             
             # Filter results for display (keep all for export)
@@ -1492,7 +1364,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                 results = results[~results['Risk'].isin(['✅', '🔵'])].copy()
                 if len(results) == 0:
                     results = full_results.head(max_results)  # Fallback if no critical results
-                    st.info("ℹ️ No critical/medium risks found. Showing all results.")
+                    st.info("No critical/medium risks found. Showing all results.")
                 else:
                     results = results.head(max_results)
             else:
@@ -1531,38 +1403,60 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                                 full_results, quantitative_results, rf_params, selected_band_objs
                             )
 
+                            # Build quantitative lookup for unified risk assessment
+                            quant_lookup = {}
+                            for qr in quantitative_results:
+                                key = (qr.victim_code, qr.product_type, round(qr.frequency_mhz, 1))
+                                quant_lookup[key] = {
+                                    'interference_power_dbm': qr.interference_at_victim_dbm,
+                                    'victim_sensitivity_dbm': qr.victim_sensitivity_dbm,
+                                    'desensitization_db': qr.desensitization_db,
+                                }
+
+                            # Apply unified risk: upgrade Risk column with quantitative data
+                            if quant_lookup:
+                                for df in [results, full_results]:
+                                    if 'Risk' in df.columns:
+                                        for idx, row in df.iterrows():
+                                            risk_sym, _, reason = calculate_unified_risk(
+                                                row.to_dict(), quant_lookup
+                                            )
+                                            df.at[idx, 'Risk'] = risk_sym
+                                            if 'Details' in df.columns and reason:
+                                                df.at[idx, 'Details'] = reason
+
                             # Create compliance summary
                             compliance_summary = create_compliance_summary(
                                 full_results, quantitative_results, selected_band_objs
                             )
                     except Exception as e:
-                        st.warning(f"⚠️ Quantitative analysis error: {e}")
+                        st.warning(f"Quantitative analysis error: {e}")
 
             # Display Results Header
-            st.subheader(f"📊 Professional Analysis Results ({len(full_results)} total, showing {len(results)})")
+            st.subheader(f"Analysis Results ({len(full_results)} total, showing {len(results)})")
 
             # =========================================================================
             # ENHANCED SUMMARY DASHBOARD
             # =========================================================================
-            st.markdown("#### 📈 Analysis Summary")
+            st.markdown("#### Summary")
 
             # Row 1: Severity counts
             metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
             with metric_col1:
                 critical_count = len(full_results[full_results['Risk'] == '🔴'])
-                st.metric("🔴 Critical", critical_count)
+                st.metric("Critical", critical_count)
             with metric_col2:
                 high_count = len(full_results[full_results['Risk'] == '🟠'])
-                st.metric("🟠 High", high_count)
+                st.metric("High", high_count)
             with metric_col3:
                 medium_count = len(full_results[full_results['Risk'] == '🟡'])
-                st.metric("🟡 Medium", medium_count)
+                st.metric("Medium", medium_count)
             with metric_col4:
                 low_count = len(full_results[full_results['Risk'] == '🔵'])
-                st.metric("🔵 Low", low_count)
+                st.metric("Low", low_count)
             with metric_col5:
                 safe_count = len(full_results[full_results['Risk'] == '✅'])
-                st.metric("✅ Safe", safe_count)
+                st.metric("Safe", safe_count)
 
             # Row 2: Compliance and quantitative metrics
             if quantitative_results:
@@ -1624,11 +1518,11 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
             # COMPLIANCE REPORT SECTION
             # =========================================================================
             if REGULATORY_AVAILABLE and quantitative_results:
-                with st.expander("📋 3GPP/FCC Compliance Report", expanded=False):
+                with st.expander("3GPP/FCC Compliance Report", expanded=False):
                     st.markdown("#### Regulatory Compliance Analysis")
 
                     if compliance_summary.get('emission_violations', 0) > 0:
-                        st.error(f"⚠️ **{compliance_summary['emission_violations']} Regulatory Violation(s) Detected**")
+                        st.error(f"**{compliance_summary['emission_violations']} Regulatory Violation(s) Detected**")
 
                         # Violations table
                         violation_data = []
@@ -1643,12 +1537,12 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                         if violation_data:
                             st.dataframe(pd.DataFrame(violation_data), use_container_width=True)
                     else:
-                        st.success("✅ **All emissions within regulatory limits**")
+                        st.success("All emissions within regulatory limits")
 
                     # Isolation requirements (if module available)
                     if ISOLATION_MATRIX_AVAILABLE:
                         st.markdown("---")
-                        st.markdown("#### 🔧 Critical Isolation Requirements")
+                        st.markdown("#### Critical Isolation Requirements")
 
                         critical_pairs = get_all_critical_pairs()
                         if critical_pairs:
@@ -1668,7 +1562,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
             # =========================================================================
             if RF_PERFORMANCE_AVAILABLE and quantitative_results:
                 st.markdown("---")
-                with st.expander("⚡ Advanced: Monte Carlo Worst-Case Analysis", expanded=False):
+                with st.expander("Monte Carlo Worst-Case Analysis", expanded=False):
                     st.markdown("""
                     **Monte Carlo Simulation** - Analyze worst-case interference with manufacturing
                     and temperature tolerances (±1dB TX power, ±2dB IIP3, ±3dB isolation, -40°C to +85°C).
@@ -1678,7 +1572,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                     with mc_col1:
                         n_iterations = st.slider("Iterations", 100, 5000, 1000, 100)
                     with mc_col2:
-                        run_monte_carlo = st.button("🎲 Run Monte Carlo", type="primary")
+                        run_monte_carlo = st.button("Run Monte Carlo", type="primary")
 
                     if run_monte_carlo:
                         with st.spinner(f"Running {n_iterations} Monte Carlo iterations..."):
@@ -1686,16 +1580,16 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                                 rf_params = st.session_state['rf_params']
                                 tolerances = ToleranceParameters()
 
-                                mc_results = monte_carlo_interference_analysis(
+                                mc_results = monte_carlo_interference_analysis_multi(
                                     base_params=rf_params,
                                     tolerances=tolerances,
                                     interference_products=full_results.to_dict('records'),
                                     band_objects=selected_band_objs,
-                                    n_iterations=n_iterations
+                                    num_iterations=n_iterations
                                 )
 
                                 if mc_results:
-                                    st.success("✅ Monte Carlo analysis complete")
+                                    st.success("Monte Carlo analysis complete")
 
                                     mc_metric1, mc_metric2, mc_metric3, mc_metric4 = st.columns(4)
                                     with mc_metric1:
@@ -1716,45 +1610,10 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                             except Exception as e:
                                 st.error(f"Monte Carlo analysis failed: {e}")
 
-            # =========================================================================
-            # LEGACY QUANTITATIVE SECTION (Keep for backwards compatibility)
-            # =========================================================================
-            if RF_PERFORMANCE_AVAILABLE and st.session_state.get('rf_params') and quantitative_results:
-                st.markdown("---")
-                with st.expander("📖 Professional RF Analysis Methodology", expanded=False):
-                    method_col1, method_col2 = st.columns(2)
-                    with method_col1:
-                        st.markdown("""
-                        **🎯 v2.0.0 Professional Calculations:**
-                        • **Quantitative Power Levels**: All results show dBm/dBc values
-                        • **3GPP Compliance**: Automatic limit checking (TS 36.101/38.101)
-                        • **I/N Methodology**: Standard interference-to-noise ratio analysis
-                        • **Desensitization**: Actual receiver impact in dB
-
-                        **🔧 Harmonic/IMD Calculations:**
-                        • **HD Formulas**: Polynomial coefficient-based (HD4 = HD2-30dB)
-                        • **IMD Formulas**: P_IM3 = 3×P_in - 2×IIP3 (standard two-tone)
-                        • **Coupling-Aware Isolation**: Realistic multi-path model
-                        """)
-                    with method_col2:
-                        st.markdown("""
-                        **📡 Coexistence Features:**
-                        • **PTA**: BLE↔Wi-Fi 2.4G coordination
-                        • **WCI-2**: LTE↔Wi-Fi coordination
-                        • **Duty Cycle Correction**: TDM/intermittent interference
-                        • **Filter Rejection**: Receiver selectivity modeling
-
-                        **📋 New in v2.0.0:**
-                        • Professional results table with dBm columns
-                        • Compliance dashboard with 3GPP status
-                        • Monte Carlo worst-case analysis
-                        • Isolation matrix requirements
-                        """)
-
-            # Continue with quantitative charts if available
+            # Quantitative analysis charts
             if RF_PERFORMANCE_AVAILABLE and st.session_state.get('rf_params') and quantitative_results:
                 # Keep existing chart logic but under expandable section
-                with st.expander("📈 Quantitative Analysis Charts", expanded=True):
+                with st.expander("Quantitative Analysis Charts", expanded=True):
                     rf_params = st.session_state['rf_params']
 
                     try:
@@ -1783,11 +1642,11 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                             st.metric("Min Margin", f"{min_margin:+.1f} dB", help=margin_help)
 
                         # Display quantitative results table
-                        st.markdown("**📊 Quantitative Analysis Results**")
+                        st.markdown("**Quantitative Analysis Results**")
                         st.dataframe(quant_df, use_container_width=True, height=300)
 
                         # Professional RF spectrum visualization
-                        st.markdown("**📈 RF Spectrum Analysis**")
+                        st.markdown("**RF Spectrum Analysis**")
 
                         # Create spectrum chart
                         fig = create_rf_spectrum_chart(quantitative_results, rf_params)
@@ -1795,26 +1654,14 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                             st.plotly_chart(fig, use_container_width=True)
 
                             # Chart interpretation in expandable section
-                            with st.expander("📊 How to Read This Chart"):
-                                chart_col1, chart_col2 = st.columns(2)
-                                with chart_col1:
-                                    st.markdown("""
-                                    **📊 Chart Elements:**
-                                    - **Green bars**: Fundamental signals (0 dBc reference)
-                                    - **Yellow products**: 2nd order dominant (IM2, 2H)
-                                    - **Orange products**: 3rd order dominant (IM3, 3H)
-                                    - **Blue products**: 4th order dominant (IM4, 4H)
-                                    - **Red products**: 5th order dominant (IM5, 5H)
-                                    """)
-                                with chart_col2:
-                                    st.markdown("""
-                                    **📈 Interpretation:**
-                                    - **Height** = interference level in dBc relative to fundamental
-                                    - **Hover** for details: formulas, coefficients, risk assessment
-                                    - **Professional accuracy** with 5th-order polynomial expansion
-                                    """)
+                            with st.expander("How to Read This Chart"):
+                                st.markdown("""
+                                **Chart Elements:** Green = fundamental (0 dBc). Yellow = 2nd order. Orange = 3rd order. Blue = 4th order. Red = 5th order.
+
+                                **Interpretation:** Height = interference level in dBc relative to fundamental. Hover for details.
+                                """)
                         else:
-                            st.warning("⚠️ Could not generate spectrum chart")
+                            st.warning("Could not generate spectrum chart")
 
                         # Additional analysis charts
                         chart_col1, chart_col2 = st.columns(2)
@@ -1826,13 +1673,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                                 risk_counts = risk_dist.groupby('Risk').count().reset_index()
                                 fig_risk = px.pie(risk_counts, values='Count', names='Risk',
                                                 title="Risk Distribution",
-                                                color_discrete_map={
-                                                    'Critical': '#c62828',
-                                                    'High': '#ef6c00',
-                                                    'Medium': '#f57f17',
-                                                    'Low': '#1565c0',
-                                                    'Negligible': '#2e7d32'
-                                                })
+                                                color_discrete_map=RISK_PIE_COLOR_MAP)
                                 st.plotly_chart(fig_risk, use_container_width=True)
 
                         with chart_col2:
@@ -1851,44 +1692,32 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                                 st.plotly_chart(fig_desense, use_container_width=True)
 
                     except Exception as e:
-                        st.error(f"❌ Error in quantitative chart generation: {str(e)}")
-                        st.info("💡 Try selecting fewer bands or using a different system preset")
+                        st.error(f"Error in quantitative chart generation: {str(e)}")
+                        st.info("Try selecting fewer bands or using a different system preset")
                 
                 # Technical details in expandable sections
-                with st.expander("🔬 Technical Details & Column Explanations"):
+                with st.expander("Technical Details & Column Explanations"):
                     detail_col1, detail_col2 = st.columns(2)
                     with detail_col1:
                         st.markdown("""
-                        **🔋 Power Levels & Measurements:**
+                        **Power Levels & Measurements:**
                         - **TX Power**: Transmitter output power (dBm)
                         - **Interference (dBc)**: Relative to carrier
                         - **At TX (dBm)**: Absolute interference power at transmitter output
                         - **At Victim (dBm)**: After antenna isolation & path loss
                         - **Sensitivity**: Victim receiver threshold (dBm)
                         - **Margin**: Positive = safe, negative = interference
-                        - **Desense (dB)**: Professional I/N calculation
+                        - **Desense (dB)**: I/N calculation
                         """)
                     with detail_col2:
                         st.markdown("""
-                        **🎯 Key Engineering Insights:**
-                        - **IM3 ≠ just 3rd order**: Contains 3rd + 5th + 7th order contributions
-                        - **IM2 ≠ 2×HD2**: Contains 2nd + 4th order terms
+                        **Key Engineering Insights:**
+                        - **IM3 != just 3rd order**: Contains 3rd + 5th + 7th order contributions
+                        - **IM2 != 2xHD2**: Contains 2nd + 4th order terms
                         - **Even-order products** (IM2, IM4) often stronger than odd-order
-                        - **Mathematical Foundation**: V₀ = a₀ + a₁Vᵢ + a₂Vᵢ² + a₃Vᵢ³ + a₄Vᵢ⁴ + a₅Vᵢ⁵
                         """)
-                    
-                    st.info("""
-                    **📈 Typical RF System Levels** (without optimization):
-                    • HD2/IM2: ~-25 dBc (2nd + 4th order)  • HD3/IM3: ~-40 dBc (3rd + 5th + 7th order)
-                    • HD4/IM4: ~-55 dBc (4th + 2nd order)  • HD5/IM5: ~-60 dBc (5th + 3rd order)
-                    """)
-                    
-                    st.success("""
-                    **🔧 Professional RF Engineering Approach**: 
-                    TX filtering → Antenna isolation → PCB isolation → RX filtering → Realistic interference levels
-                    """)
                 
-                with st.expander("🧮 Mathematical Formulas"):
+                with st.expander("Mathematical Formulas"):
                     st.markdown("""
                     **IM3 Products (2f₁±f₂):**
                     ```
@@ -1910,13 +1739,13 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
             
             # Export Section - Professional Export
             st.markdown("---")
-            st.subheader("📤 Professional Data Export")
+            st.subheader("Data Export")
             
             export_col1, export_col2, export_col3 = st.columns(3)
             
             with export_col1:
                 # Professional CSV Export with Metadata
-                if st.button("📄 Professional CSV", use_container_width=True):
+                if st.button("Export CSV", use_container_width=True):
                     export_data = full_results if include_safe else full_results[~full_results['Risk'].isin(['✅', '🔵'])]
                     
                     # Add professional metadata
@@ -1932,17 +1761,17 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                     timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
                     
                     st.download_button(
-                        "⬇️ Download Professional CSV",
+                        "Download CSV",
                         data=csv_data,
                         file_name=f"rf_interference_professional_{timestamp}.csv",
                         mime="text/csv",
                         help="CSV with professional metadata and validation status"
                     )
-                    st.success(f"✅ Professional CSV ready! {len(export_data)} products")
+                    st.success(f"CSV ready - {len(export_data)} products")
             
             with export_col2:
                 # Enhanced Excel Export with Multiple Sheets
-                if st.button("📊 Professional Excel", use_container_width=True):
+                if st.button("Export Excel", use_container_width=True):
                     export_data = full_results if include_safe else full_results[~full_results['Risk'].isin(['✅', '🔵'])]
                     
                     buffer = BytesIO()
@@ -2007,36 +1836,36 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                     
                     timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
                     st.download_button(
-                        "⬇️ Download Professional Excel",
+                        "Download Excel",
                         data=buffer.getvalue(),
                         file_name=f"rf_interference_professional_{timestamp}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         help="Multi-sheet Excel with analysis, metadata, band config, and risk summary"
                     )
-                    st.success(f"✅ Professional Excel ready! {len(export_data)} products across 4 sheets")
+                    st.success(f"Excel ready - {len(export_data)} products across 4 sheets")
             
             with export_col3:
                 # JSON Export
-                if st.button("🔧 Export JSON", use_container_width=True):
+                if st.button("Export JSON", use_container_width=True):
                     export_data = full_results if include_safe else full_results[~full_results['Risk'].isin(['✅', '🔵'])]
                     json_data = export_data.to_dict('records')
                     json_str = pd.io.json.dumps(json_data, indent=2)
                     timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
                     
                     st.download_button(
-                        "⬇️ Download JSON",
+                        "Download JSON",
                         data=json_str,
                         file_name=f"rf_interference_{timestamp}.json",
                         mime="application/json"
                     )
-                    st.success(f"✅ JSON ready! {len(export_data)} products")
+                    st.success(f"JSON ready - {len(export_data)} products")
             
             # Simple Visualizations (like GitHub version)
             st.markdown("---")
-            st.subheader("📊 Analysis Views")
-            
+            st.subheader("Analysis Views")
+
             viz_tab1, viz_tab2, viz_tab3, viz_tab4 = st.tabs([
-                "🎯 Frequency Spectrum", "📈 Risk Analysis", "🔍 Band Coverage", "⚡ Product Distribution"
+                "Frequency Spectrum", "Risk Analysis", "Band Coverage", "Product Distribution"
             ])
             
             with viz_tab1:
@@ -2048,22 +1877,15 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                         # Simple frequency scatter plot with text-based risk mapping
                         # Convert emoji risk symbols to text for better Altair compatibility
                         valid_results = valid_results.copy()
-                        risk_text_mapping = {
-                            '🔴': 'Critical',
-                            '🟠': 'High',
-                            '🟡': 'Medium',
-                            '🔵': 'Low',
-                            '✅': 'Safe'
-                        }
-                        valid_results['Risk_Text'] = valid_results['Risk'].map(risk_text_mapping).fillna('Safe')
+                        valid_results['Risk_Text'] = valid_results['Risk'].map(RISK_EMOJI_TO_NAME).fillna('Safe')
                         
                         spectrum_chart = alt.Chart(valid_results).mark_circle(size=100, opacity=0.8).encode(
                             x=alt.X('Frequency:Q', title='Frequency (MHz)', scale=alt.Scale(nice=False)),
                             y=alt.Y('Type:N', title='Product Type', sort=['2H', '3H', '4H', '5H', 'IM2', 'IM3', 'IM4', 'IM5', 'IM7']),
                             color=alt.Color('Risk_Text:N',
                                 scale=alt.Scale(
-                                    domain=['Critical', 'High', 'Medium', 'Low', 'Safe'],
-                                    range=['#d32f2f', '#f57c00', '#fbc02d', '#1976d2', '#388e3c']
+                                    domain=RISK_COLOR_DOMAIN,
+                                    range=RISK_COLOR_RANGE
                                 ),
                                 legend=alt.Legend(title="Risk Level", orient="right", symbolType="circle", symbolSize=100)
                             ),
@@ -2084,7 +1906,7 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                         st.altair_chart(spectrum_chart, use_container_width=True)
                         
                         # Show summary statistics
-                        st.info(f"📊 Showing {len(valid_results)} interference products across frequency spectrum")
+                        st.caption(f"Showing {len(valid_results)} interference products")
                     else:
                         st.info("No valid frequency data to display")
             
@@ -2101,8 +1923,8 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                         theta=alt.Theta('Count:Q'),
                         color=alt.Color('Risk_Level:N',
                             scale=alt.Scale(
-                                domain=['🔴', '🟠', '🟡', '🔵', '✅'],
-                                range=['#d32f2f', '#f57c00', '#fbc02d', '#1976d2', '#388e3c']
+                                domain=RISK_EMOJI_DOMAIN,
+                                range=RISK_EMOJI_COLOR_RANGE
                             )
                         ),
                         tooltip=['Risk_Level:N', 'Count:Q']
@@ -2175,54 +1997,12 @@ if st.button("🚀 Calculate Interference", type="primary", use_container_width=
                     st.altair_chart(dist_chart, use_container_width=True)
         
         else:
-            st.warning("⚠️ No interference products found")
+            st.warning("No interference products found")
 
 st.markdown("---")
-st.markdown("### 📡 About & Attribution")
+st.caption(f"RF Spectrum Interference Calculator v{__version__} | [GitHub](https://github.com/RFingAdam/rf-interference-calculator) | AGPL-3.0 | Professional validation required")
 
-col_std, col_links, col_legal, col_academic = st.columns(4)
-
-with col_std:
-    st.markdown("""
-    **Supported Standards**
-    • 3GPP LTE Bands (Release 17)
-    • IEEE 802.11 Wi‑Fi (2.4/5/6 GHz)
-    • Bluetooth LE (BLE 5.x)
-    • GNSS/GPS L1/L2/L5
-    • ISM Band Analysis
-    • **RF Insights Theory Validated** ✅
-    """)
-
-with col_links:
-    st.markdown("""
-    **Project Links**
-    • [GitHub Repository](https://github.com/RFingAdam/rf-interference-calculator)
-    • [Theory Validation](https://github.com/RFingAdam/rf-interference-calculator/blob/main/RF_INSIGHTS_VALIDATION.md)
-    • [Report Issues](https://github.com/RFingAdam/rf-interference-calculator/issues)
-    • [License (MIT)](https://github.com/RFingAdam/rf-interference-calculator/blob/main/LICENSE)
-    """)
-
-with col_legal:
-    st.markdown("""
-    **License & Disclaimer**
-    • MIT License — Free for commercial/educational use
-    • © 2025 RFingAdam — Professional analysis
-    • No warranty — **Professional validation required**
-    • User responsible for regulatory compliance
-    """)
-
-with col_academic:
-    st.markdown("""
-    **Academic References**
-    • [RF Insights - Baseband IMD](https://www.rfinsights.com/concepts/baseband-tones-intermodulation/)
-    • IEEE 802.11 Standard (WiFi)
-    • 3GPP TS 36.101 (LTE)
-    • [Razavi - RF Microelectronics](https://www.pearson.com/store/p/rf-microelectronics/P100000318552)
-    • Mathematical foundation peer-reviewed
-    """)
-
-# Technical disclaimer for professional use
-with st.expander("⚖️ Technical Architecture & Professional Usage Guidelines"):
+with st.expander("Technical Architecture & Usage Guidelines"):
     st.markdown("""
     ### Software Architecture
     **Modular Three-Layer Design:**
@@ -2231,12 +2011,12 @@ with st.expander("⚖️ Technical Architecture & Professional Usage Guidelines"
     - **RF Performance Module** (`rf_performance.py`): Quantitative dBc/dBm analysis with system parameters
     - **User Interface** (`ui.py`): Professional Streamlit visualization with multi-tab analysis
     
-    **5-Level Risk Assessment System (Professionally Validated):**
-    - **🔴 Critical (5)**: GPS interference, public safety bands, >10 dB desensitization risk
-    - **🟠 High (4)**: Strong interference likely to cause measurable performance degradation  
-    - **🟡 Medium (3)**: Moderate interference, may affect sensitivity in poor RF conditions
-    - **🔵 Low (2)**: Weak interference, minimal impact under normal operational scenarios
-    - **✅ Safe (1)**: No significant interference detected, meets professional design margins
+    **5-Level Risk Assessment:**
+    - **Critical (5)**: GPS interference, public safety bands, >10 dB desensitization
+    - **High (4)**: Strong interference causing measurable performance degradation
+    - **Medium (3)**: Moderate interference, may affect sensitivity in poor RF conditions
+    - **Low (2)**: Weak interference, minimal impact under normal scenarios
+    - **Safe (1)**: No significant interference detected
     
     ### Mathematical Foundation (Peer-Reviewed)
     **Polynomial Nonlinearity Model:**

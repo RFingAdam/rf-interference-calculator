@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.1.0] - 2026-02-08 - 5G NR Support, Unified Risk Assessment & UI Polish
+
+### Added
+- **14 5G NR FR1 bands**: n1, n2, n3, n5, n7, n25, n28, n38, n41, n66, n71, n77, n78, n79
+  (3GPP TS 38.101-1). Total band count is now 85
+- **Unified risk assessment** via `calculate_unified_risk()` in `calculator.py`, bridging
+  frequency-based and power-based analysis into a single consistent result
+- **Monte Carlo multi-band wrapper** `monte_carlo_interference_analysis_multi()` in
+  `rf_performance.py`, correctly connecting the UI to the analysis engine
+- **Bandwidth normalization** in `check_emission_compliance()` for accurate regulatory
+  compliance checking across bands with different channel widths
+- **Coupling factor** exposed as a user-configurable sidebar slider (0.0-1.0) with
+  Monte Carlo variation support for sensitivity analysis
+- **~20 new isolation matrix pairs** covering NR-WiFi, NR-GNSS, and cross-technology
+  coexistence scenarios. Total isolation pairs: 34
+- **`constants.py` module**: single source of truth for VERSION, product type colors,
+  risk level definitions, sort orders, and chart color scales
+- **Professional Streamlit theme** via `.streamlit/config.toml` with blue primary color
+  scheme and clean sans-serif font
+- **NR band support** in `rf_performance.py` for power estimation, duty cycle calculation,
+  and receiver sensitivity lookup
+
+### Changed
+- **Removed ~80 emoji** from headers, buttons, expanders, and sidebar elements for a
+  cleaner professional appearance
+- **Streamlined sidebar** layout with redundant status indicators removed
+- **Simplified chart legends** by removing verbose mathematical formulas
+- **Consolidated footer** from 4-column layout to a single professional caption
+- **Unified color system** across all charts using centralized constants from `constants.py`
+- **Removed duplicate methodology section** from the UI
+
+### Fixed
+- **Monte Carlo parameter name mismatch**: UI was calling the analysis engine with
+  incorrect parameter names, causing the Monte Carlo simulation to fail silently
+- **Disconnected analysis paths**: frequency-based and power-based risk assessments
+  were running independently without merging results. The new unified risk function
+  integrates both paths
+
 ## [2.0.0] - 2025-12-28 - Professional UI Overhaul
 
 ### Major UI Enhancements
