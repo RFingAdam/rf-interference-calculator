@@ -207,7 +207,8 @@ FCC_LIMITS = {
 def check_emission_compliance(
     band_code: str,
     product_freq_mhz: float,
-    product_power_dbm: float
+    product_power_dbm: float,
+    product_bandwidth_mhz: float = 0.0
 ) -> Tuple[bool, str, float]:
     """
     Check if emission at frequency meets 3GPP/FCC limits.
@@ -216,6 +217,7 @@ def check_emission_compliance(
         band_code: Transmitting band code (e.g., 'LTE_B13')
         product_freq_mhz: Frequency of spurious/harmonic product (MHz)
         product_power_dbm: Power of the product (dBm)
+        product_bandwidth_mhz: Product bandwidth for normalization (0 = skip normalization)
 
     Returns:
         (compliant: bool, reason: str, margin_db: float)
@@ -232,14 +234,25 @@ def check_emission_compliance(
         # Non-LTE bands - use general limits
         band_limits = SPURIOUS_LIMITS_3GPP["LTE_DEFAULT"]
 
+    # Bandwidth normalization: adjust product power to measurement bandwidth
+    # P_in_meas_bw = P_product + 10*log10(measurement_bw / product_bw)
+    import math
+    normalized_power_dbm = product_power_dbm
+
     # Check protected bands first (strictest limits)
     for protected_name, limit_spec in band_limits.protected_bands.items():
         if limit_spec.freq_low_mhz <= product_freq_mhz <= limit_spec.freq_high_mhz:
-            margin = limit_spec.limit_dbm - product_power_dbm
-            compliant = product_power_dbm <= limit_spec.limit_dbm
+            if product_bandwidth_mhz > 0 and limit_spec.measurement_bw_mhz > 0:
+                bw_correction = 10 * math.log10(limit_spec.measurement_bw_mhz / product_bandwidth_mhz)
+                normalized_power_dbm = product_power_dbm + bw_correction
+            else:
+                normalized_power_dbm = product_power_dbm
+            margin = limit_spec.limit_dbm - normalized_power_dbm
+            compliant = normalized_power_dbm <= limit_spec.limit_dbm
+            bw_note = f" (BW-normalized)" if product_bandwidth_mhz > 0 else ""
             return (
                 compliant,
-                f"{protected_name}: {product_power_dbm:.1f} dBm vs {limit_spec.limit_dbm:.1f} dBm limit ({limit_spec.reference})",
+                f"{protected_name}: {normalized_power_dbm:.1f} dBm{bw_note} vs {limit_spec.limit_dbm:.1f} dBm limit ({limit_spec.reference})",
                 margin
             )
 
