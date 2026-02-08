@@ -74,6 +74,9 @@ class SystemParameters:
     gnss_duty_cycle: float = 1.0          # GNSS always receiving
     halow_duty_cycle: float = 0.3         # HaLow typical duty cycle
 
+    # === Coupling Factor ===
+    coupling_factor: float = 0.3          # Inter-path coupling (0.0-1.0), used in isolation model
+
     # === User Configuration Metadata ===
     configuration_name: str = "Default"   # User-defined configuration name
     configuration_notes: str = ""         # User notes about this configuration
@@ -527,10 +530,11 @@ def get_technology_duty_cycle(band_code: str, system_params: SystemParameters) -
 
     # TDD LTE bands (bidirectional on same frequency)
     tdd_lte_bands = ['B38', 'B39', 'B40', 'B41', 'B42', 'B43', 'B44', 'B48']
+    tdd_nr_bands = ['N38', 'N41', 'N77', 'N78', 'N79']
 
-    if any(tdd in band_upper for tdd in tdd_lte_bands):
-        return system_params.lte_duty_cycle  # TDD LTE ~50%
-    elif 'LTE' in band_upper or '5G' in band_upper:
+    if any(tdd in band_upper for tdd in tdd_lte_bands + tdd_nr_bands):
+        return system_params.lte_duty_cycle  # TDD LTE/NR ~50%
+    elif 'LTE' in band_upper or 'NR_N' in band_upper or '5G' in band_upper:
         return 1.0  # FDD LTE is continuous in its band
     elif any(wifi in band_upper for wifi in ['WIFI', 'WI-FI', 'WLAN']):
         return system_params.wifi_duty_cycle  # WiFi CSMA/CA ~40%
@@ -755,7 +759,8 @@ def calculate_harmonic_level_quantitative(fundamental_power_dbm: float, harmonic
         system_params.antenna_isolation,
         system_params.pcb_isolation,
         system_params.shield_isolation,
-        harmonic_freq_mhz
+        harmonic_freq_mhz,
+        system_params.coupling_factor
     )
 
     # CORRECTED: Apply harmonic-specific isolation adjustment
@@ -929,7 +934,8 @@ def calculate_imd_level_quantitative(power1_dbm: float, power2_dbm: float,
         system_params.antenna_isolation,
         system_params.pcb_isolation,
         system_params.shield_isolation,
-        frequency_mhz=1000.0  # Use mid-band frequency for IMD
+        frequency_mhz=1000.0,  # Use mid-band frequency for IMD
+        coupling_factor=system_params.coupling_factor
     )
 
     # Technology-specific coupling (conservative application)
@@ -999,7 +1005,8 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
         system_params.antenna_isolation,
         system_params.pcb_isolation,
         system_params.shield_isolation,
-        frequency_mhz=1000.0  # Mid-band frequency estimate
+        frequency_mhz=1000.0,  # Mid-band frequency estimate
+        coupling_factor=system_params.coupling_factor
     )
     interference_at_victim_dbm = interference_at_tx_dbm - total_isolation_db
 
@@ -1014,8 +1021,12 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
         rx_bandwidth_hz = 2e6      # 2 MHz GNSS bandwidth
         noise_figure_db = 2.0      # Low NF for GNSS
         required_cnr_db = 15.0     # Typical C/N₀ requirement
+    elif 'NR_N' in victim_band_code.upper():
+        rx_bandwidth_hz = 20e6     # 20 MHz NR typical bandwidth
+        noise_figure_db = system_params.noise_figure_db
+        required_cnr_db = 10.0     # NR SINR requirement
     elif 'LTE' in victim_band_code.upper():
-        rx_bandwidth_hz = 10e6     # 10 MHz LTE bandwidth  
+        rx_bandwidth_hz = 10e6     # 10 MHz LTE bandwidth
         noise_figure_db = system_params.noise_figure_db  # 6 dB typical
         required_cnr_db = 10.0     # SINR requirement
     elif any(tech in victim_band_code.upper() for tech in ['WIFI', 'WI-FI']):
@@ -1114,6 +1125,8 @@ def get_victim_sensitivity_quantitative(victim_band_code: str, system_params: Sy
     # Technology-specific sensitivities (industry standard values)
     if any(tech in victim_band_code.upper() for tech in ['GNSS', 'GPS']):
         return system_params.gnss_sensitivity  # -150 dBm (very sensitive)
+    elif 'NR_N' in victim_band_code.upper():
+        return system_params.lte_sensitivity   # -105 dBm (similar to LTE)
     elif 'LTE' in victim_band_code.upper():
         return system_params.lte_sensitivity   # -105 dBm
     elif any(tech in victim_band_code.upper() for tech in ['WIFI', 'WI-FI']):
@@ -1192,7 +1205,7 @@ def get_aggressor_power_quantitative(band_code: str, system_params: SystemParame
     """
     band_upper = band_code.upper()
     
-    if 'LTE' in band_upper or '5G' in band_upper:
+    if 'LTE' in band_upper or 'NR_N' in band_upper or '5G' in band_upper:
         return system_params.lte_tx_power
     elif any(tech in band_upper for tech in ['WIFI', 'WI-FI', 'WLAN']):
         return system_params.wifi_tx_power
@@ -1743,6 +1756,10 @@ def monte_carlo_interference_analysis(
         filter_variation = abs(random.gauss(0, tolerances.filter_tolerance_db / 2))
         varied_params.tx_harmonic_filtering_db -= filter_variation
 
+        # Coupling factor variation (small random perturbation)
+        coupling_variation = random.gauss(0, 0.05)
+        varied_params.coupling_factor = max(0.0, min(1.0, varied_params.coupling_factor + coupling_variation))
+
         # Temperature effects
         temp = random.uniform(*temperature_range_c)
         temp_effect = (temp - 25) * tolerances.temperature_coefficient_db_per_c
@@ -1845,6 +1862,100 @@ def generate_monte_carlo_report(monte_carlo_results: Dict, scenario_name: str) -
         report.append(f"  Resulting Desense:     {wc['desensitization_db']:.2f} dB")
 
     return "\n".join(report)
+
+
+def monte_carlo_interference_analysis_multi(
+    base_params: SystemParameters,
+    tolerances: ToleranceParameters,
+    interference_products: List[Dict],
+    band_objects: List = None,
+    num_iterations: int = 1000,
+    temperature_range_c: Tuple[float, float] = (-40, 85)
+) -> Dict:
+    """
+    Run Monte Carlo simulation across multiple interference products.
+
+    Selects the worst-case interference scenario from the products list,
+    then runs the full Monte Carlo simulation on that scenario.
+
+    Args:
+        base_params: Nominal system parameters
+        tolerances: Manufacturing/environmental tolerances
+        interference_products: List of interference product dicts from calculator
+            (each has 'Type', 'Frequency_MHz'/'Frequency', 'Aggressors', 'Victims', etc.)
+        band_objects: List of Band objects (used to resolve band codes)
+        num_iterations: Number of Monte Carlo iterations
+        temperature_range_c: Operating temperature range (min, max)
+
+    Returns:
+        Dictionary with keys matching UI expectations:
+            p50_desense, p95_desense, p99_desense, max_desense,
+            worst_conditions, num_iterations
+    """
+    if not interference_products:
+        return None
+
+    # Find the worst-case scenario from the products list
+    # Pick the highest-risk product (first after risk-sorted, or first with Risk emoji)
+    worst_product = None
+    risk_order = {'🔴': 0, '🟠': 1, '🟡': 2, '🔵': 3, '✅': 4}
+
+    for product in interference_products:
+        risk = product.get('Risk', '✅')
+        if worst_product is None or risk_order.get(risk, 4) < risk_order.get(worst_product.get('Risk', '✅'), 4):
+            worst_product = product
+
+    if worst_product is None:
+        worst_product = interference_products[0]
+
+    # Build the interference_scenario dict expected by the base function
+    product_type = worst_product.get('Product_Subtype', worst_product.get('Type', 'IM3'))
+    freq_mhz = worst_product.get('Frequency_MHz', worst_product.get('Frequency', 1000))
+    if isinstance(freq_mhz, str):
+        try:
+            freq_mhz = float(freq_mhz.replace(' MHz', '').strip())
+        except (ValueError, AttributeError):
+            freq_mhz = 1000.0
+
+    aggressors = worst_product.get('Aggressors', '')
+    victims = worst_product.get('Victims', '')
+
+    # Extract band codes from aggressor/victim strings
+    aggressor_code = aggressors.split(',')[0].strip() if isinstance(aggressors, str) and aggressors else 'LTE_B1'
+    victim_code = victims.split(',')[0].strip() if isinstance(victims, str) and victims else 'GNSS_L1'
+
+    scenario = {
+        'aggressor_code': aggressor_code,
+        'victim_code': victim_code,
+        'product_type': product_type,
+        'frequency_mhz': float(freq_mhz),
+    }
+
+    # Run the base Monte Carlo analysis
+    results = monte_carlo_interference_analysis(
+        base_params=base_params,
+        tolerances=tolerances,
+        interference_scenario=scenario,
+        num_iterations=num_iterations,
+        temperature_range_c=temperature_range_c
+    )
+
+    if results is None:
+        return None
+
+    # Remap keys to match UI expectations
+    return {
+        'p50_desense': results['p50'],
+        'p95_desense': results['p95'],
+        'p99_desense': results['p99'],
+        'max_desense': results['max'],
+        'mean_desense': results['mean'],
+        'std_desense': results['std'],
+        'min_desense': results['min'],
+        'worst_conditions': results.get('worst_case_params', {}),
+        'num_iterations': results['num_iterations'],
+        'scenario': scenario,
+    }
 
 
 if __name__ == "__main__":

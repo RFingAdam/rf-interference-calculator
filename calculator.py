@@ -1088,3 +1088,49 @@ def get_victim_noise_floor(victim_code: str, bandwidth_hz: float = None) -> floa
     noise_floor = thermal_noise + nf_db
 
     return noise_floor
+
+
+def calculate_unified_risk(
+    row: Dict,
+    quantitative_data: Dict = None
+) -> Tuple[str, int, str]:
+    """
+    Unified risk assessment that uses power-based quantitative risk when available,
+    falling back to frequency-based assessment otherwise.
+
+    Args:
+        row: A result row dict from calculate_all_products (has 'Risk', 'Victims', 'Type', etc.)
+        quantitative_data: Optional dict of quantitative analysis results keyed by
+            (victim_code, product_type, frequency_mhz) with values containing
+            'interference_power_dbm', 'victim_sensitivity_dbm', 'desensitization_db'
+
+    Returns:
+        (risk_symbol, severity 1-5, reason_string)
+    """
+    victim_code = row.get('Victims', '')
+    product_type = row.get('Product_Subtype', row.get('Type', ''))
+    freq = row.get('Frequency_MHz', row.get('Frequency', 0))
+    if isinstance(freq, str):
+        try:
+            freq = float(freq.replace(' MHz', '').strip())
+        except (ValueError, AttributeError):
+            freq = 0
+
+    # Try quantitative path first
+    if quantitative_data:
+        key = (victim_code.split(',')[0].strip() if isinstance(victim_code, str) else '', product_type, round(freq, 1))
+        quant = quantitative_data.get(key)
+        if quant and 'desensitization_db' in quant:
+            return assess_risk_severity_quantitative(
+                interference_power_dbm=quant['interference_power_dbm'],
+                victim_sensitivity_dbm=quant['victim_sensitivity_dbm'],
+                desensitization_db=quant['desensitization_db'],
+                victim_code=key[0],
+                product_type=product_type
+            )
+
+    # Fall back to existing frequency-based risk (already in row)
+    existing_risk = row.get('Risk', '✅')
+    severity_map = {'🔴': 5, '🟠': 4, '🟡': 3, '🔵': 2, '✅': 1}
+    severity = severity_map.get(existing_risk, 1)
+    return existing_risk, severity, row.get('Details', '')
