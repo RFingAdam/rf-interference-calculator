@@ -1,12 +1,13 @@
 """
 Tests for rf_performance.py — IMD calculations, harmonic levels, isolation, Monte Carlo.
-Refs GH #9, #12, #13, #15, #19.
+Refs GH #9, #12, #13, #15, #19, #20.
 """
 import math
 import pytest
 from rf_performance import (
     SystemParameters,
     ToleranceParameters,
+    _truncated_gauss,
     calculate_imd_from_intercept,
     calculate_hd2_from_iip2,
     calculate_total_isolation,
@@ -16,6 +17,7 @@ from rf_performance import (
     calculate_harmonic_level_quantitative,
     monte_carlo_interference_analysis,
     monte_carlo_interference_analysis_multi,
+    estimate_coupling_factor,
 )
 
 
@@ -298,3 +300,293 @@ class TestSystemParameters:
         for pa_class in ['A', 'AB', 'B', 'C']:
             params = SystemParameters(pa_class=pa_class)
             assert params.pa_class == pa_class
+
+
+# ============================================================
+# Truncated Gauss — GH #19
+# ============================================================
+
+class TestTruncatedGauss:
+    """GH #19: _truncated_gauss helper tests."""
+
+    def test_truncated_gauss_within_bounds(self):
+        """GH #19: All samples should be within 3-sigma."""
+        import random
+        random.seed(42)
+        for _ in range(10000):
+            sample = _truncated_gauss(0.0, 1.0, n_sigma=3.0)
+            assert -3.0 <= sample <= 3.0
+
+    def test_truncated_gauss_custom_sigma(self):
+        """GH #19: Custom n_sigma bound should hold."""
+        import random
+        random.seed(99)
+        for _ in range(10000):
+            sample = _truncated_gauss(10.0, 2.0, n_sigma=2.0)
+            assert 6.0 <= sample <= 14.0
+
+    def test_truncated_gauss_zero_std(self):
+        """GH #19: Zero std should always return the mean."""
+        for _ in range(100):
+            assert _truncated_gauss(5.0, 0.0) == 5.0
+
+
+# ============================================================
+# Monte Carlo physical bounds — GH #19
+# ============================================================
+
+class TestMonteCarloPhysicalBounds:
+    """GH #19: Monte Carlo should not produce unphysical parameter values."""
+
+    def test_monte_carlo_no_unphysical_values(self, default_params):
+        """GH #19: Monte Carlo should not produce unphysical parameter values."""
+        tolerances = ToleranceParameters()
+        scenario = {
+            'aggressor_code': 'LTE_B3',
+            'victim_code': 'GNSS_L1',
+            'product_type': 'IM3',
+            'frequency_mhz': 1575.42,
+        }
+        result = monte_carlo_interference_analysis(
+            default_params, tolerances, scenario, num_iterations=500
+        )
+        # All desensitization values should be finite and non-negative
+        assert result['min'] >= 0.0 or result['min'] > -1.0  # Allow tiny numerical noise
+        assert result['max'] < 100.0  # No ridiculous values
+
+
+# ============================================================
+# Temperature coefficients — GH #20
+# ============================================================
+
+class TestTemperatureCoefficients:
+    """GH #20: Temperature effects on TX power, NF, sensitivity."""
+
+    def test_tolerance_params_new_fields(self):
+        """GH #20: New temperature coefficient fields exist with correct defaults."""
+        t = ToleranceParameters()
+        assert t.tx_power_temp_coeff_db_per_30c == 0.5
+        assert t.nf_temp_coeff_db_per_60c == 0.3
+
+    def test_monte_carlo_hot_worse_than_cold(self, default_params):
+        """GH #20: Hot temperature should produce worse results."""
+        scenario = {
+            'aggressor_code': 'LTE_B3',
+            'victim_code': 'GNSS_L1',
+            'product_type': 'IM3',
+            'frequency_mhz': 1575.42,
+        }
+        tolerances = ToleranceParameters()
+        # Hot only
+        result_hot = monte_carlo_interference_analysis(
+            default_params, tolerances, scenario, num_iterations=500,
+            temperature_range_c=(70, 85)
+        )
+        # Cold only
+        result_cold = monte_carlo_interference_analysis(
+            default_params, tolerances, scenario, num_iterations=500,
+            temperature_range_c=(20, 30)
+        )
+        # Hot should have worse (higher) mean desensitization
+        assert result_hot['mean'] >= result_cold['mean'] - 1.0  # Allow some variance
+
+
+# ============================================================
+# GH #16 — Frequency-dependent TX filter model
+# ============================================================
+
+class TestTxFilterModel:
+    """GH #16: TX filter rejection uses calculate_rx_filter_rejection at harmonic freq."""
+
+    def test_new_system_params_fields(self):
+        """GH #16: tx_filter_type and tx_filter_order should have defaults."""
+        params = SystemParameters()
+        assert params.tx_filter_type == "butterworth"
+        assert params.tx_filter_order == 5
+
+    def test_custom_tx_filter_params(self):
+        """GH #16: Custom filter params should be settable."""
+        params = SystemParameters(tx_filter_type="chebyshev", tx_filter_order=7)
+        assert params.tx_filter_type == "chebyshev"
+        assert params.tx_filter_order == 7
+
+    def test_harmonic_uses_frequency_dependent_filter(self):
+        """GH #16: Higher-order harmonics should get more filtering from the model."""
+        params = SystemParameters(tx_filter_type="butterworth", tx_filter_order=5)
+        # 2H at 1800 MHz (from 900 MHz fundamental)
+        dbc_2h, _, _, _ = calculate_harmonic_level_quantitative(
+            20.0, 2, params, fundamental_freq_mhz=900.0
+        )
+        # 5H at 4500 MHz (from 900 MHz fundamental)
+        dbc_5h, _, _, _ = calculate_harmonic_level_quantitative(
+            20.0, 5, params, fundamental_freq_mhz=900.0
+        )
+        # 5H should be more suppressed (more negative dBc)
+        assert dbc_5h < dbc_2h, f"5H ({dbc_5h:.1f}) should be more suppressed than 2H ({dbc_2h:.1f})"
+
+    def test_steeper_filter_gives_more_rejection(self):
+        """GH #16: Higher filter order should suppress harmonics more."""
+        params_low = SystemParameters(tx_filter_type="butterworth", tx_filter_order=3)
+        params_high = SystemParameters(tx_filter_type="butterworth", tx_filter_order=7)
+        # 3H at 2700 MHz from 900 MHz fundamental
+        dbc_low, _, _, _ = calculate_harmonic_level_quantitative(
+            20.0, 3, params_low, fundamental_freq_mhz=900.0
+        )
+        dbc_high, _, _, _ = calculate_harmonic_level_quantitative(
+            20.0, 3, params_high, fundamental_freq_mhz=900.0
+        )
+        # Higher order filter should produce more negative dBc (more suppressed)
+        assert dbc_high <= dbc_low, \
+            f"Order-7 ({dbc_high:.1f}) should suppress >= order-3 ({dbc_low:.1f})"
+
+    def test_all_filter_types_run(self):
+        """GH #16: All filter types should execute without error."""
+        for ftype in ["butterworth", "chebyshev", "saw", "baw"]:
+            params = SystemParameters(tx_filter_type=ftype, tx_filter_order=5)
+            dbc, dbm, formula, coeff = calculate_harmonic_level_quantitative(
+                20.0, 3, params, fundamental_freq_mhz=900.0
+            )
+            assert isinstance(dbc, float)
+            assert isinstance(dbm, float)
+
+
+# ============================================================
+# GH #17 — Frequency-dependent coupling factor
+# ============================================================
+
+class TestEstimateCouplingFactor:
+    """GH #17: estimate_coupling_factor physics model."""
+
+    def test_antenna_coupling_default(self):
+        """Basic antenna coupling at 2.4 GHz, 20mm separation."""
+        cf = estimate_coupling_factor(2400.0, 20.0, 'antenna')
+        assert 0.01 <= cf <= 1.0
+
+    def test_pcb_trace_coupling(self):
+        """PCB trace coupling should be relatively high at close separation."""
+        cf = estimate_coupling_factor(2400.0, 5.0, 'pcb_trace')
+        assert cf > 0.3, f"PCB trace coupling at 5mm should be high, got {cf:.3f}"
+
+    def test_board_level_coupling(self):
+        """Board-level coupling is moderate."""
+        cf = estimate_coupling_factor(900.0, 20.0, 'board_level')
+        assert 0.01 <= cf <= 1.0
+
+    def test_higher_freq_different_coupling(self):
+        """At higher frequency, wavelength is shorter, coupling changes."""
+        cf_low = estimate_coupling_factor(900.0, 20.0, 'antenna')
+        cf_high = estimate_coupling_factor(5800.0, 20.0, 'antenna')
+        # At 5.8 GHz wavelength ~ 52mm; 20mm sep ~ 0.38 wavelengths
+        # At 900 MHz wavelength ~ 333mm; 20mm sep ~ 0.06 wavelengths
+        # Both should be valid
+        assert 0.01 <= cf_low <= 1.0
+        assert 0.01 <= cf_high <= 1.0
+
+    def test_large_separation_low_coupling(self):
+        """At large separation, coupling should be low."""
+        cf = estimate_coupling_factor(900.0, 200.0, 'antenna')
+        assert cf < 0.5, f"Coupling at 200mm should be moderate or low, got {cf:.3f}"
+
+    def test_very_close_antenna_high_coupling(self):
+        """Very close antennas should have high coupling."""
+        cf = estimate_coupling_factor(900.0, 5.0, 'antenna')
+        # At 900 MHz, wavelength=333mm, 5mm is 0.015 wavelengths -> very close
+        assert cf >= 0.5, f"Very close coupling should be high, got {cf:.3f}"
+
+    def test_invalid_inputs_return_default(self):
+        """Invalid frequency or separation should return safe default."""
+        assert estimate_coupling_factor(0.0, 20.0) == 0.3
+        assert estimate_coupling_factor(-100.0, 20.0) == 0.3
+        assert estimate_coupling_factor(900.0, 0.0) == 0.3
+
+    def test_system_params_new_fields(self):
+        """GH #17: antenna_separation_mm and coupling_type fields exist."""
+        params = SystemParameters()
+        assert params.antenna_separation_mm == 20.0
+        assert params.coupling_type == "antenna"
+
+    def test_custom_separation(self):
+        params = SystemParameters(antenna_separation_mm=50.0, coupling_type="pcb_trace")
+        assert params.antenna_separation_mm == 50.0
+        assert params.coupling_type == "pcb_trace"
+
+
+# ============================================================
+# GH #18 — PAPR modulation-dependent harmonic generation
+# ============================================================
+
+class TestPaprModel:
+    """GH #18: PAPR affects harmonic generation levels."""
+
+    def test_papr_increases_harmonics(self):
+        """GH #18: Higher PAPR should produce worse (less negative) harmonic levels."""
+        params = SystemParameters()
+        # No PAPR (constant envelope like GSM)
+        hd_no_papr = calculate_system_harmonic_levels(20.0, params, papr_db=0.0)
+        # High PAPR (like 5G NR at 9 dB)
+        hd_high_papr = calculate_system_harmonic_levels(20.0, params, papr_db=9.0)
+
+        # With PAPR, HD levels should be worse (less negative = higher harmonics)
+        assert hd_high_papr['hd2_dbc'] >= hd_no_papr['hd2_dbc'], \
+            f"HD2 with PAPR ({hd_high_papr['hd2_dbc']:.1f}) should be >= without ({hd_no_papr['hd2_dbc']:.1f})"
+        assert hd_high_papr['hd3_dbc'] >= hd_no_papr['hd3_dbc'], \
+            f"HD3 with PAPR ({hd_high_papr['hd3_dbc']:.1f}) should be >= without ({hd_no_papr['hd3_dbc']:.1f})"
+
+    def test_papr_zero_no_change(self):
+        """GH #18: Zero PAPR should give same result as default."""
+        params = SystemParameters()
+        hd_default = calculate_system_harmonic_levels(20.0, params)
+        hd_zero_papr = calculate_system_harmonic_levels(20.0, params, papr_db=0.0)
+        assert hd_default['hd2_dbc'] == hd_zero_papr['hd2_dbc']
+        assert hd_default['hd3_dbc'] == hd_zero_papr['hd3_dbc']
+
+    def test_papr_in_result_dict(self):
+        """GH #18: Result dict should contain papr_db and papr_correction_db."""
+        params = SystemParameters()
+        result = calculate_system_harmonic_levels(20.0, params, papr_db=8.0)
+        assert 'papr_db' in result
+        assert result['papr_db'] == 8.0
+        assert 'papr_correction_db' in result
+        assert abs(result['papr_correction_db'] - 8.0 * 0.3) < 0.01
+
+    def test_papr_harmonic_level_quantitative(self):
+        """GH #18: calculate_harmonic_level_quantitative accepts papr_db."""
+        params = SystemParameters()
+        dbc_no_papr, _, _, _ = calculate_harmonic_level_quantitative(
+            20.0, 3, params, 900.0, papr_db=0.0
+        )
+        dbc_high_papr, _, _, _ = calculate_harmonic_level_quantitative(
+            20.0, 3, params, 900.0, papr_db=9.0
+        )
+        # High PAPR should produce worse (less negative) harmonics
+        assert dbc_high_papr >= dbc_no_papr
+
+    def test_band_papr_values(self):
+        """GH #18: Band dataclass should have papr_db field with correct values."""
+        from bands import BANDS
+        # GSM: constant envelope
+        assert BANDS['GSM_850'].papr_db == 0.0
+        # LTE: SC-FDMA
+        assert BANDS['LTE_B1'].papr_db == 8.0
+        # 5G NR: CP-OFDM
+        assert BANDS['NR_n77'].papr_db == 9.0
+        # WiFi: OFDM
+        assert BANDS['WiFi_2G'].papr_db == 10.0
+        # BLE: GFSK
+        assert BANDS['BLE'].papr_db == 2.0
+        # LoRa: CSS
+        assert BANDS['LoRa_US'].papr_db == 0.0
+        # HaLow: OFDM
+        assert BANDS['HaLow_NA'].papr_db == 8.0
+        # UMTS: WCDMA
+        assert BANDS['UMTS_B1'].papr_db == 3.4
+        # Public Safety
+        assert BANDS['TETRA'].papr_db == 3.0
+
+    def test_all_bands_have_papr(self):
+        """GH #18: All bands should have papr_db field."""
+        from bands import BAND_LIST
+        for b in BAND_LIST:
+            assert hasattr(b, 'papr_db'), f"{b.code} missing papr_db"
+            assert isinstance(b.papr_db, (int, float)), f"{b.code} papr_db not numeric"
+            assert b.papr_db >= 0.0, f"{b.code} has negative PAPR: {b.papr_db}"

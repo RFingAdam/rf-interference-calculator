@@ -23,7 +23,8 @@ try:
         monte_carlo_interference_analysis_multi,
         generate_monte_carlo_report,
         ToleranceParameters,
-        calculate_interference_at_victim_quantitative
+        calculate_interference_at_victim_quantitative,
+        estimate_coupling_factor
     )
     import plotly.graph_objects as go
     import plotly.express as px
@@ -708,13 +709,20 @@ with st.sidebar:
                                                    help="Additional RF shielding (0 = no shield)")
             
             with iso_col2:
-                custom_tx_filter = st.slider("TX Harmonic Filtering (dB)", 20, 80, 40, 
+                custom_tx_filter = st.slider("TX Harmonic Filtering (dB)", 20, 80, 40,
                                            help="TX harmonic suppression - reduces harmonics dramatically")
-                custom_rx_filter = st.slider("RX Preselector Filtering (dB)", 0, 40, 0, 
+                custom_rx_filter = st.slider("RX Preselector Filtering (dB)", 0, 40, 0,
                                            help="RX preselector filtering (0 = wideband receiver)")
-                custom_oob_rejection = st.slider("Out-of-Band Rejection (dB)", 20, 80, 60, 
+                custom_oob_rejection = st.slider("Out-of-Band Rejection (dB)", 20, 80, 60,
                                                 help="Filter out-of-band rejection")
-            
+                # GH #16: TX filter model parameters
+                custom_tx_filter_type = st.selectbox("TX Filter Type",
+                                                     ["butterworth", "chebyshev", "saw", "baw"],
+                                                     index=0,
+                                                     help="TX filter topology (affects harmonic rejection rolloff)")
+                custom_tx_filter_order = st.slider("TX Filter Order", 1, 9, 5,
+                                                   help="TX filter order (higher = steeper rolloff)")
+
             with iso_col3:
                 # Technology-specific isolation
                 custom_lte_gnss_coupling = st.slider("LTE→GNSS Coupling (dB)", -20, 0, -10,
@@ -725,6 +733,9 @@ with st.sidebar:
                                                           help="Cellular/Wi-Fi isolation")
                 custom_coupling_factor = st.slider("Coupling Factor", 0.0, 1.0, 0.3, 0.05,
                                                    help="EM coupling factor for total isolation model (0=no coupling, 1=full coupling)")
+                # GH #17: Antenna separation for frequency-dependent coupling
+                custom_antenna_separation = st.slider("Antenna Separation (mm)", 5, 200, 20,
+                                                      help="Physical separation between antennas in mm (affects coupling at frequency)")
             
             # ✅ CORRECTED: System Linearity Parameters (RF Engineering Approach)
             st.markdown("**System Linearity Characteristics**")
@@ -783,30 +794,37 @@ with st.sidebar:
                 lte_tx_power=custom_lte_tx,
                 wifi_tx_power=custom_wifi_tx,
                 ble_tx_power=custom_ble_tx,
-                
+
                 # RF System Isolation & Path Loss
                 antenna_isolation=custom_antenna_isolation,
                 pcb_isolation=custom_pcb_isolation,
                 shield_isolation=custom_shield_isolation,
-                
+
                 # Filtering & Attenuation
                 tx_harmonic_filtering_db=custom_tx_filter,
                 rx_preselector_filtering_db=custom_rx_filter,
                 out_of_band_rejection_db=custom_oob_rejection,
-                
+
+                # GH #16: TX Filter Model
+                tx_filter_type=custom_tx_filter_type,
+                tx_filter_order=custom_tx_filter_order,
+
                 # Technology-Specific Path Loss
                 lte_to_gnss_coupling_db=custom_lte_gnss_coupling,
                 wifi_ble_isolation_db=custom_wifi_ble_isolation,
                 cellular_wifi_isolation_db=custom_cellular_wifi_isolation,
-                
-                # ✅ CORRECTED: System Linearity Parameters
+
+                # System Linearity Parameters
                 iip3_dbm=custom_iip3,
                 iip2_dbm=custom_iip2,
                 pa_class=custom_pa_class,
                 bias_point_optimized=custom_bias_optimized,
-                
+
                 # Coupling Factor
                 coupling_factor=custom_coupling_factor,
+
+                # GH #17: Antenna Separation
+                antenna_separation_mm=custom_antenna_separation,
 
                 # Receiver Sensitivities
                 lte_sensitivity=custom_lte_sens,

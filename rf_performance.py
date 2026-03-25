@@ -79,6 +79,14 @@ class SystemParameters:
     # === Coupling Factor ===
     coupling_factor: float = 0.3          # Inter-path coupling (0.0-1.0), used in isolation model
 
+    # === TX Filter Model (GH #16) ===
+    tx_filter_type: str = "butterworth"   # TX filter type: butterworth, chebyshev, saw, baw
+    tx_filter_order: int = 5              # TX filter order (1-9)
+
+    # === Antenna Separation (GH #17) ===
+    antenna_separation_mm: float = 20.0   # Physical separation between antennas in mm
+    coupling_type: str = "antenna"        # Coupling type: antenna, pcb_trace, board_level
+
     # === User Configuration Metadata ===
     configuration_name: str = "Default"   # User-defined configuration name
     configuration_notes: str = ""         # User notes about this configuration
@@ -463,6 +471,51 @@ def calculate_rx_filter_rejection(
     return min(max(rejection, 0.0), max_rejection)
 
 
+def estimate_coupling_factor(
+    freq_mhz: float,
+    separation_mm: float = 20.0,
+    coupling_type: str = 'antenna'
+) -> float:
+    """
+    Estimate coupling factor based on frequency and physical separation.
+
+    Coupling increases when antenna/PCB dimensions are comparable to wavelength.
+
+    Args:
+        freq_mhz: Operating frequency in MHz
+        separation_mm: Physical separation between antennas in mm
+        coupling_type: 'antenna' (far-field), 'pcb_trace' (near-field), 'board_level' (substrate)
+
+    Returns:
+        Coupling factor (0.0-1.0)
+    """
+    if freq_mhz <= 0 or separation_mm <= 0:
+        return 0.3  # Safe default
+
+    # Wavelength in mm
+    wavelength_mm = 300000.0 / freq_mhz
+
+    # Ratio of separation to wavelength (key coupling parameter)
+    sep_ratio = separation_mm / wavelength_mm
+
+    if coupling_type == 'pcb_trace':
+        # Near-field: strong coupling at all frequencies, decreases with separation
+        base_coupling = 0.7 * math.exp(-sep_ratio * 2.0)
+    elif coupling_type == 'board_level':
+        # Substrate coupling: moderate, frequency-dependent
+        base_coupling = 0.4 * math.exp(-sep_ratio * 1.5)
+    else:  # 'antenna'
+        # Far-field: peaks when separation ~ wavelength/4 to wavelength
+        if sep_ratio < 0.25:
+            base_coupling = 0.8  # Very close: strong coupling
+        elif sep_ratio < 1.0:
+            base_coupling = 0.5 * (1.0 - sep_ratio)  # Moderate
+        else:
+            base_coupling = 0.1 / sep_ratio  # Falls off with distance
+
+    return max(0.01, min(1.0, base_coupling))
+
+
 def apply_duty_cycle_correction(
     desensitization_db_continuous: float,
     aggressor_duty_cycle: float,
@@ -629,38 +682,53 @@ def calculate_imd_from_intercept(
     return p_imd
 
 
-def calculate_system_harmonic_levels(tx_power_dbm: float, system_params: SystemParameters) -> dict:
+def calculate_system_harmonic_levels(tx_power_dbm: float, system_params: SystemParameters,
+                                     papr_db: float = 0.0) -> dict:
     """
     Calculate all harmonic distortion levels from fundamental system parameters
 
     This is the CORRECT RF engineering approach:
     Input: TX power + System linearity characteristics (IIP3/IIP2)
     Output: Calculated harmonic performance levels
-    
+
+    GH #18: PAPR modulation model -- higher PAPR means the signal has larger
+    peaks which drive the PA harder and generate more harmonics.  The PAPR
+    contribution is applied as an additive dBc correction: 30% of PAPR is added
+    to the harmonic levels (making them less negative / stronger).
+
     Args:
         tx_power_dbm: TX power level in dBm
         system_params: System parameters including IIP3, IIP2, PA characteristics
-        
+        papr_db: Peak-to-Average Power Ratio in dB (0 for constant-envelope signals)
+
     Returns:
         Dictionary with all calculated HD levels and metadata
     """
-    # Calculate fundamental harmonics from real RF linearity
+    # Calculate fundamental harmonics from real RF linearity at average power
     hd2_dbc = calculate_hd2_from_iip2(
-        tx_power_dbm, 
-        system_params.iip2_dbm, 
+        tx_power_dbm,
+        system_params.iip2_dbm,
         system_params.bias_point_optimized
     )
-    
+
     hd3_dbc = calculate_hd3_from_iip3(
         tx_power_dbm,
-        system_params.iip3_dbm, 
+        system_params.iip3_dbm,
         system_params.pa_class
     )
-    
+
     # Calculate higher order harmonics with compression effects
     hd4_dbc, hd5_dbc = calculate_higher_order_harmonics(
         hd2_dbc, hd3_dbc, tx_power_dbm, system_params.iip3_dbm
     )
+
+    # GH #18: PAPR correction -- higher PAPR drives more harmonics
+    # 30% of PAPR contributes as an additive dBc worsening (less negative = stronger)
+    papr_correction = papr_db * 0.3
+    hd2_dbc += papr_correction
+    hd3_dbc += papr_correction
+    hd4_dbc += papr_correction
+    hd5_dbc += papr_correction
 
     return {
         'hd2_dbc': hd2_dbc,
@@ -669,39 +737,49 @@ def calculate_system_harmonic_levels(tx_power_dbm: float, system_params: SystemP
         'hd5_dbc': hd5_dbc,
         'calculation_method': 'Calculated from IIP3/IIP2 + TX Power (polynomial coefficients)',
         'tx_power_dbm': tx_power_dbm,
+        'papr_db': papr_db,
+        'papr_correction_db': papr_correction,
         'iip3_dbm': system_params.iip3_dbm,
         'iip2_dbm': system_params.iip2_dbm,
         'pa_class': system_params.pa_class
     }
 
 def calculate_harmonic_level_quantitative(fundamental_power_dbm: float, harmonic_order: int,
-                                         system_params: SystemParameters, fundamental_freq_mhz: float = 1000.0) -> Tuple[float, float, str, str]:
+                                         system_params: SystemParameters, fundamental_freq_mhz: float = 1000.0,
+                                         papr_db: float = 0.0) -> Tuple[float, float, str, str]:
     """
     Calculate harmonic interference level using polynomial analysis
-    
+
     Mathematical Foundation based on 5th-order polynomial:
-    V₀ = a₁V + a₂V² + a₃V³ + a₄V⁴ + a₅V⁵
-    
+    V_0 = a_1*V + a_2*V^2 + a_3*V^3 + a_4*V^4 + a_5*V^5
+
     From polynomial analysis table:
-    - 2H (HD2): ~-32.1 dBc (pure a₂V² term)
-    - 3H (HD3): ~-60.4 dBc (pure a₃V³ term)  
-    - 4H (HD4): ~-73.0 dBc (pure a₄V⁴ term, estimated)
-    - 5H (HD5): ~-84.0 dBc (pure a₅V⁵ term, estimated)
-    
+    - 2H (HD2): ~-32.1 dBc (pure a_2*V^2 term)
+    - 3H (HD3): ~-60.4 dBc (pure a_3*V^3 term)
+    - 4H (HD4): ~-73.0 dBc (pure a_4*V^4 term, estimated)
+    - 5H (HD5): ~-84.0 dBc (pure a_5*V^5 term, estimated)
+
     Includes frequency-dependent path loss: 20*log10(f_harm/f_fund)
-    
+
+    GH #16: TX filter rejection is now computed from calculate_rx_filter_rejection
+    using the actual harmonic frequency, TX center frequency, and TX filter parameters.
+
+    GH #18: PAPR is passed through to calculate_system_harmonic_levels to model
+    modulation-dependent harmonic generation.
+
     Args:
-        fundamental_power_dbm: Fundamental TX power in dBm  
+        fundamental_power_dbm: Fundamental TX power in dBm
         harmonic_order: 2, 3, 4, or 5
         system_params: System parameters with isolation and nonlinearity
         fundamental_freq_mhz: Actual fundamental frequency in MHz
-    
+        papr_db: Peak-to-Average Power Ratio in dB (default 0.0)
+
     Returns:
         (harmonic_level_dbc, harmonic_at_victim_dbm, formula, coefficient_used)
     """
-    
+
     # Polynomial analysis results for pure harmonic terms
-    # Based on coefficients: a₂=0.0562, a₃=0.01, a₄=0.0018, a₅=0.001
+    # Based on coefficients: a_2=0.0562, a_3=0.01, a_4=0.0018, a_5=0.001
     polynomial_harmonics = {
         2: {
             'reference_dbc': -32.1,  # HD2 from table: 2.5E-02 = -32.1 dB relative to signal
@@ -710,7 +788,7 @@ def calculate_harmonic_level_quantitative(fundamental_power_dbm: float, harmonic
         },
         3: {
             'reference_dbc': -60.4,  # HD3 from table: -9.4E-04 = -60.4 dB
-            'formula': f"3H = a₃V³", 
+            'formula': f"3H = a₃V³",
             'coeff': 'a₃ = 0.01'
         },
         4: {
@@ -724,51 +802,53 @@ def calculate_harmonic_level_quantitative(fundamental_power_dbm: float, harmonic
             'coeff': 'a₅ = 0.001'
         }
     }
-    
+
     if harmonic_order not in polynomial_harmonics:
         raise ValueError(f"Harmonic order {harmonic_order} not supported (2-5 only)")
-    
+
     poly_data = polynomial_harmonics[harmonic_order]
     reference_dbc = poly_data['reference_dbc']
     formula = poly_data['formula']
     coeff = poly_data['coeff']
-    
-    # ✅ CORRECTED: Calculate harmonic levels from real system parameters
-    # Get calculated harmonic levels based on TX power and system linearity
-    calculated_harmonics = calculate_system_harmonic_levels(fundamental_power_dbm, system_params)
-    
+
+    # Calculate harmonic levels from real system parameters (GH #18: with PAPR)
+    calculated_harmonics = calculate_system_harmonic_levels(
+        fundamental_power_dbm, system_params, papr_db=papr_db
+    )
+
     # Use calculated harmonic level instead of fixed input values
     harmonic_dbc_mapping = {
         2: calculated_harmonics['hd2_dbc'],
-        3: calculated_harmonics['hd3_dbc'],  
+        3: calculated_harmonics['hd3_dbc'],
         4: calculated_harmonics['hd4_dbc'],
         5: calculated_harmonics['hd5_dbc']
     }
-    
+
     # Get the calculated harmonic level for this order
     harmonic_dbc = harmonic_dbc_mapping[harmonic_order]
-    
+
     # Step 1: Calculate harmonic power at TX output (before filtering)
     harmonic_at_tx_dbm = fundamental_power_dbm + harmonic_dbc
-    
-    # Step 2: Apply TX harmonic filtering with frequency-dependent response
 
-    # Higher-frequency harmonics get progressively more filtering (realistic values)
-    base_tx_filter_db = system_params.tx_harmonic_filtering_db
-    
-    # Additional filtering for higher harmonics (realistic filter response)
-    freq_dependent_filtering = {
-        2: 0,      # 2H gets base filtering only
-        3: 3,      # 3H gets +3 dB more filtering  
-        4: 6,      # 4H gets +6 dB more filtering
-        5: 10      # 5H gets +10 dB more filtering
-    }
-    
-    total_tx_filter_db = base_tx_filter_db + freq_dependent_filtering.get(harmonic_order, 0)
-    harmonic_after_tx_filter_dbm = harmonic_at_tx_dbm - total_tx_filter_db
-    
-    # Step 3: Calculate path loss with CORRECTED isolation model
+    # Step 2: Apply TX harmonic filtering
+    # GH #16: Use frequency-dependent TX filter model when fundamental frequency is known
     harmonic_freq_mhz = fundamental_freq_mhz * harmonic_order
+    tx_bw_mhz = 20.0  # Typical LTE channel bandwidth
+
+    # Calculate TX filter rejection at the harmonic frequency using the filter model
+    tx_filter_rejection = calculate_rx_filter_rejection(
+        harmonic_freq_mhz, fundamental_freq_mhz, tx_bw_mhz * 2,
+        system_params.tx_filter_order, system_params.tx_filter_type
+    )
+
+    # Use the greater of: frequency-dependent model or the legacy static value
+    # This ensures the filter model never produces less rejection than the baseline
+    base_tx_filter_db = system_params.tx_harmonic_filtering_db
+    total_tx_filter_db = max(tx_filter_rejection, base_tx_filter_db)
+    harmonic_after_tx_filter_dbm = harmonic_at_tx_dbm - total_tx_filter_db
+
+    # Step 3: Calculate path loss with CORRECTED isolation model
+    # (harmonic_freq_mhz already calculated above for TX filter)
 
     # CORRECTED: Use coupling-aware isolation model (not simple additive)
     base_isolation_db = calculate_total_isolation(
@@ -1228,17 +1308,20 @@ def analyze_interference_quantitative(interference_products: List[Dict],
             if product_type.endswith('H'):  # Harmonics (2H, 3H, 4H, 5H)
                 try:
                     harmonic_order = int(product_type[0])
-                    # Estimate fundamental frequency from aggressor band
+                    # Estimate fundamental frequency and PAPR from aggressor band
                     fundamental_freq_mhz = 1000.0  # Default
+                    aggressor_papr_db = 0.0  # Default PAPR
                     if aggressors:
                         aggressor_band = aggressors[0].strip()
                         for band in band_objects:
                             if band.code == aggressor_band and band.tx_low > 0:
                                 fundamental_freq_mhz = (band.tx_low + band.tx_high) / 2
+                                aggressor_papr_db = getattr(band, 'papr_db', 0.0)
                                 break
-                    
+
                     interference_dbc, interference_at_tx_dbm, formula, coeff = calculate_harmonic_level_quantitative(
-                        aggressor_power_dbm, harmonic_order, system_params, fundamental_freq_mhz
+                        aggressor_power_dbm, harmonic_order, system_params, fundamental_freq_mhz,
+                        papr_db=aggressor_papr_db
                     )
                 except ValueError:
                     continue  # Skip invalid harmonic orders
@@ -1662,7 +1745,21 @@ class ToleranceParameters:
     isolation_tolerance_db: float = 3.0      # ±3 dB typical
     filter_tolerance_db: float = 2.0         # ±2 dB typical
     sensitivity_tolerance_db: float = 2.0    # ±2 dB typical
-    temperature_coefficient_db_per_c: float = 0.05  # dB per degree C
+    temperature_coefficient_db_per_c: float = 0.05  # dB per degree C (IIP3)
+    tx_power_temp_coeff_db_per_30c: float = 0.5   # GH #20: TX power drift per 30°C
+    nf_temp_coeff_db_per_60c: float = 0.3         # GH #20: NF degradation per 60°C
+
+
+def _truncated_gauss(mean: float, std: float, n_sigma: float = 3.0) -> float:
+    """Sample from truncated normal distribution, clamped at +/-n_sigma.
+
+    GH #19: Prevents unbounded tails from producing unphysical parameter values.
+    """
+    import random
+    sample = random.gauss(mean, std)
+    lower = mean - n_sigma * std
+    upper = mean + n_sigma * std
+    return max(lower, min(upper, sample))
 
 
 def monte_carlo_interference_analysis(
@@ -1707,39 +1804,72 @@ def monte_carlo_interference_analysis(
         # Create varied parameters
         varied_params = dataclasses.replace(base_params)
 
-        # TX power variation (Gaussian, can go either way)
-        varied_params.lte_tx_power += random.gauss(0, tolerances.tx_power_tolerance_db / 2)
-        varied_params.wifi_tx_power += random.gauss(0, tolerances.tx_power_tolerance_db / 2)
-        varied_params.ble_tx_power += random.gauss(0, tolerances.tx_power_tolerance_db / 2)
+        # --- Temperature for this iteration (sampled once, applied to all) ---
+        temp = random.uniform(*temperature_range_c)
 
-        # IIP3/IIP2 variation (usually symmetric)
-        varied_params.iip3_dbm += random.gauss(0, tolerances.iip3_tolerance_db / 2)
-        varied_params.iip2_dbm += random.gauss(0, tolerances.iip2_tolerance_db / 2)
+        # --- TX power variation (GH #19: truncated normal + physical bounds) ---
+        varied_params.lte_tx_power += _truncated_gauss(0, tolerances.tx_power_tolerance_db / 2)
+        varied_params.wifi_tx_power += _truncated_gauss(0, tolerances.tx_power_tolerance_db / 2)
+        varied_params.ble_tx_power += _truncated_gauss(0, tolerances.tx_power_tolerance_db / 2)
 
-        # Isolation variation (usually only gets worse)
-        iso_variation = abs(random.gauss(0, tolerances.isolation_tolerance_db / 2))
+        # GH #20: TX power temperature drift (PA gain compression at extremes)
+        tx_power_offset = -tolerances.tx_power_temp_coeff_db_per_30c * abs(temp - 25) / 30.0
+        varied_params.lte_tx_power += tx_power_offset
+        varied_params.wifi_tx_power += tx_power_offset
+        varied_params.ble_tx_power += tx_power_offset
+
+        # Physical bounds: TX power in [-10, 33] dBm
+        varied_params.lte_tx_power = max(-10.0, min(33.0, varied_params.lte_tx_power))
+        varied_params.wifi_tx_power = max(-10.0, min(33.0, varied_params.wifi_tx_power))
+        varied_params.ble_tx_power = max(-10.0, min(33.0, varied_params.ble_tx_power))
+
+        # --- IIP3/IIP2 variation (GH #19: truncated normal + physical bounds) ---
+        varied_params.iip3_dbm += _truncated_gauss(0, tolerances.iip3_tolerance_db / 2)
+        varied_params.iip2_dbm += _truncated_gauss(0, tolerances.iip2_tolerance_db / 2)
+
+        # Physical bounds: IIP in [-30, +20] dBm
+        varied_params.iip3_dbm = max(-30.0, min(20.0, varied_params.iip3_dbm))
+        varied_params.iip2_dbm = max(-30.0, min(20.0, varied_params.iip2_dbm))
+
+        # --- Isolation variation (GH #19: truncated, usually only gets worse) ---
+        iso_variation = abs(_truncated_gauss(0, tolerances.isolation_tolerance_db / 2))
         varied_params.antenna_isolation -= iso_variation  # Worse isolation
         varied_params.pcb_isolation -= iso_variation * 0.5
         varied_params.shield_isolation -= iso_variation * 0.3
 
-        # Filter variation (usually degrades)
-        filter_variation = abs(random.gauss(0, tolerances.filter_tolerance_db / 2))
+        # Physical bounds: isolation >= 0
+        varied_params.antenna_isolation = max(0.0, varied_params.antenna_isolation)
+        varied_params.pcb_isolation = max(0.0, varied_params.pcb_isolation)
+        varied_params.shield_isolation = max(0.0, varied_params.shield_isolation)
+
+        # --- Filter variation (GH #19: truncated, usually degrades) ---
+        filter_variation = abs(_truncated_gauss(0, tolerances.filter_tolerance_db / 2))
         varied_params.tx_harmonic_filtering_db -= filter_variation
 
-        # Coupling factor variation (small random perturbation)
-        coupling_variation = random.gauss(0, 0.05)
+        # --- Coupling factor variation (GH #19: truncated + clamped to [0, 1]) ---
+        coupling_variation = _truncated_gauss(0, 0.05)
         varied_params.coupling_factor = max(0.0, min(1.0, varied_params.coupling_factor + coupling_variation))
 
-        # Temperature effects
-        temp = random.uniform(*temperature_range_c)
+        # --- Temperature effects on IIP3 (existing, GH #20 reference temp) ---
         temp_effect = (temp - 25) * tolerances.temperature_coefficient_db_per_c
         varied_params.iip3_dbm -= temp_effect  # IIP3 degrades at high temp
+
+        # GH #20: Noise figure degradation at temperature extremes
+        nf_offset = tolerances.nf_temp_coeff_db_per_60c * abs(temp - 25) / 60.0
+        varied_params.noise_figure_db += nf_offset
+
+        # GH #20: Receiver sensitivity worsens by the NF offset amount
+        # (sensitivity is a negative dBm value; adding makes it less negative = worse)
+        varied_params.gnss_sensitivity += nf_offset
+        varied_params.wifi_sensitivity += nf_offset
+        varied_params.ble_sensitivity += nf_offset
 
         # Calculate interference for this variation
         product_type = interference_scenario.get('product_type', 'IM3')
         frequency_mhz = interference_scenario.get('frequency_mhz', 1000)
         victim_code = interference_scenario.get('victim_code', 'GENERIC')
         aggressor_code = interference_scenario.get('aggressor_code', 'LTE_B1')
+        scenario_papr_db = interference_scenario.get('papr_db', 0.0)
 
         # Get TX power based on aggressor
         tx_power = get_aggressor_power_quantitative(aggressor_code, varied_params)
@@ -1749,7 +1879,8 @@ def monte_carlo_interference_analysis(
             try:
                 harmonic_order = int(product_type[0])
                 _, interference_at_tx, _, _ = calculate_harmonic_level_quantitative(
-                    tx_power, harmonic_order, varied_params, frequency_mhz / harmonic_order
+                    tx_power, harmonic_order, varied_params, frequency_mhz / harmonic_order,
+                    papr_db=scenario_papr_db
                 )
             except:
                 interference_at_tx = tx_power - 50  # Fallback
