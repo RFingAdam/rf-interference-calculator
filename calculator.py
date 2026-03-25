@@ -1,6 +1,6 @@
 from typing import List, Tuple, Dict
 from bands import Band
-from constants import get_technology_thresholds
+from constants import get_technology_thresholds, DESENSE_NEGLIGIBILITY_THRESHOLD_DB
 
 def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2: bool = True, imd4: bool = False, imd5: bool = True, imd7: bool = False, aclr_margin: float = 0.0) -> Tuple[List[Dict], List[str]]:
     """
@@ -1005,8 +1005,8 @@ def calculate_desensitization(
     """
     import math
 
-    if interference_power_dbm <= noise_floor_dbm - 20:
-        # Interference > 20 dB below noise floor = negligible
+    if interference_power_dbm <= noise_floor_dbm - DESENSE_NEGLIGIBILITY_THRESHOLD_DB:
+        # Interference below noise floor by threshold = negligible (GH #24)
         return 0.0
 
     # I/N ratio in linear terms

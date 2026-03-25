@@ -14,7 +14,13 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import pandas as pd
 import numpy as np
-from constants import get_technology_thresholds
+from constants import (
+    get_technology_thresholds,
+    PA_CLASS_CORRECTIONS,
+    HARMONIC_ENGINEERING_LIMITS,
+    IMD_SATURATION_OFFSET_DB,
+    FILTER_MAX_REJECTION,
+)
 from calculator import assess_risk_severity_quantitative
 
 @dataclass
@@ -91,6 +97,23 @@ class SystemParameters:
     configuration_name: str = "Default"   # User-defined configuration name
     configuration_notes: str = ""         # User notes about this configuration
 
+    def __post_init__(self):
+        """Validate physical parameter ranges (GH #26)."""
+        if self.antenna_isolation < 0:
+            raise ValueError(f"antenna_isolation must be >= 0, got {self.antenna_isolation}")
+        if self.pcb_isolation < 0:
+            raise ValueError(f"pcb_isolation must be >= 0, got {self.pcb_isolation}")
+        if self.shield_isolation < 0:
+            raise ValueError(f"shield_isolation must be >= 0, got {self.shield_isolation}")
+        if not 0.0 <= self.coupling_factor <= 1.0:
+            raise ValueError(f"coupling_factor must be in [0, 1], got {self.coupling_factor}")
+        if self.noise_figure_db < 0:
+            raise ValueError(f"noise_figure_db must be >= 0, got {self.noise_figure_db}")
+        if self.tx_filter_order < 1 or self.tx_filter_order > 9:
+            raise ValueError(f"tx_filter_order must be 1-9, got {self.tx_filter_order}")
+        if self.antenna_separation_mm <= 0:
+            raise ValueError(f"antenna_separation_mm must be > 0, got {self.antenna_separation_mm}")
+
 @dataclass
 class QuantitativeResult:
     """Comprehensive quantitative interference result with dBc/dBm levels"""
@@ -136,15 +159,8 @@ def calculate_hd3_from_iip3(tx_power_dbm: float, iip3_dbm: float, pa_class: str 
     power_delta = tx_power_dbm - iip3_dbm
     hd3_basic = -2 * power_delta  # Negative because it's dBc below carrier
     
-    # PA class correction factors
-    pa_corrections = {
-        "A": 5.0,    # Class A: excellent linearity
-        "AB": 0.0,   # Class AB: good compromise (reference)
-        "B": -3.0,   # Class B: crossover distortion
-        "C": -8.0    # Class C: poor linearity, high efficiency
-    }
-    
-    hd3_correction = pa_corrections.get(pa_class, 0.0)
+    # PA class correction factors (from constants.py, GH #24)
+    hd3_correction = PA_CLASS_CORRECTIONS.get(pa_class, 0.0)
     
     # Power level corrections (realistic PA behavior)
     if power_delta < 5:  # Low power operation - better linearity
@@ -436,7 +452,7 @@ def calculate_rx_filter_rejection(
         else:
             # Stop band
             rejection = filter_order * 24.0 * math.log10(normalized_offset)
-        max_rejection = 70.0  # Chebyshev ultimate rejection
+        max_rejection = FILTER_MAX_REJECTION['chebyshev']
 
     elif filter_type == "saw":
         # SAW filter: sharp transition, moderate rejection
@@ -446,7 +462,7 @@ def calculate_rx_filter_rejection(
         else:
             # Stop band
             rejection = filter_order * 8.0 + 20.0 * math.log10(normalized_offset / 1.5)
-        max_rejection = 50.0  # SAW typical ultimate rejection
+        max_rejection = FILTER_MAX_REJECTION['saw']
 
     elif filter_type == "baw":
         # BAW filter: similar to SAW, slightly better
@@ -454,7 +470,7 @@ def calculate_rx_filter_rejection(
             rejection = filter_order * 16.0 * (normalized_offset - 1.0)
         else:
             rejection = filter_order * 9.0 + 22.0 * math.log10(normalized_offset / 1.5)
-        max_rejection = 55.0  # BAW typical ultimate rejection
+        max_rejection = FILTER_MAX_REJECTION['baw']
 
     else:  # butterworth (default)
         # Butterworth: maximally flat, 20×n dB/decade rolloff
@@ -465,7 +481,7 @@ def calculate_rx_filter_rejection(
         else:
             # Stop band
             rejection = filter_order * 20.0 * math.log10(normalized_offset)
-        max_rejection = 60.0  # Butterworth practical limit
+        max_rejection = FILTER_MAX_REJECTION['butterworth']
 
     # Apply realistic limits
     return min(max(rejection, 0.0), max_rejection)
@@ -672,11 +688,11 @@ def calculate_imd_from_intercept(
         p_imd = order * p_in_dbm - (order - 1) * iipn_estimated
 
     # Saturation clamp: IM products cannot exceed fundamental power in compression.
-    # Use P1dB if provided for precise clamping, otherwise P_in + 10 dB safety margin.
+    # Use P1dB if provided for precise clamping, otherwise P_in + offset (GH #24).
     if p1db_dbm is not None:
-        saturation_limit = p1db_dbm + 10.0
+        saturation_limit = p1db_dbm + IMD_SATURATION_OFFSET_DB
     else:
-        saturation_limit = p_in_dbm + 10.0
+        saturation_limit = p_in_dbm + IMD_SATURATION_OFFSET_DB
     p_imd = min(p_imd, saturation_limit)
 
     return p_imd
@@ -889,15 +905,8 @@ def calculate_harmonic_level_quantitative(fundamental_power_dbm: float, harmonic
     fundamental_at_victim_dbm = fundamental_power_dbm - base_isolation_db
     final_harmonic_dbc = harmonic_at_victim_final_dbm - fundamental_at_victim_dbm
     
-    # Sanity check based on polynomial analysis and engineering limits
-    engineering_limits = {
-        2: -15.0,  # 2H can be moderately strong after filtering
-        3: -25.0,  # 3H should be well-suppressed
-        4: -35.0,  # 4H very well suppressed  
-        5: -45.0   # 5H extremely well suppressed
-    }
-    
-    min_harmonic_dbc = engineering_limits.get(harmonic_order, -50.0)
+    # Sanity check based on polynomial analysis and engineering limits (GH #24)
+    min_harmonic_dbc = HARMONIC_ENGINEERING_LIMITS.get(harmonic_order, -50.0)
     if final_harmonic_dbc > min_harmonic_dbc:
         final_harmonic_dbc = min_harmonic_dbc
         harmonic_at_victim_final_dbm = fundamental_at_victim_dbm + final_harmonic_dbc

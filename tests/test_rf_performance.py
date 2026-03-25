@@ -303,6 +303,66 @@ class TestSystemParameters:
 
 
 # ============================================================
+# GH #26 — SystemParameters validation
+# ============================================================
+
+class TestSystemParametersValidation:
+    """GH #26: SystemParameters validates physical ranges."""
+
+    def test_negative_antenna_isolation_raises(self):
+        with pytest.raises(ValueError, match="antenna_isolation"):
+            SystemParameters(antenna_isolation=-5.0)
+
+    def test_coupling_factor_above_one_raises(self):
+        with pytest.raises(ValueError, match="coupling_factor"):
+            SystemParameters(coupling_factor=1.5)
+
+    def test_coupling_factor_below_zero_raises(self):
+        with pytest.raises(ValueError, match="coupling_factor"):
+            SystemParameters(coupling_factor=-0.1)
+
+    def test_negative_noise_figure_raises(self):
+        with pytest.raises(ValueError, match="noise_figure"):
+            SystemParameters(noise_figure_db=-3.0)
+
+    def test_valid_params_no_error(self):
+        params = SystemParameters()  # defaults should be valid
+        assert params.antenna_isolation >= 0
+
+    def test_edge_case_zero_coupling(self):
+        params = SystemParameters(coupling_factor=0.0)
+        assert params.coupling_factor == 0.0
+
+    def test_edge_case_one_coupling(self):
+        params = SystemParameters(coupling_factor=1.0)
+        assert params.coupling_factor == 1.0
+
+    def test_negative_pcb_isolation_raises(self):
+        with pytest.raises(ValueError, match="pcb_isolation"):
+            SystemParameters(pcb_isolation=-1.0)
+
+    def test_negative_shield_isolation_raises(self):
+        with pytest.raises(ValueError, match="shield_isolation"):
+            SystemParameters(shield_isolation=-2.0)
+
+    def test_filter_order_zero_raises(self):
+        with pytest.raises(ValueError, match="tx_filter_order"):
+            SystemParameters(tx_filter_order=0)
+
+    def test_filter_order_ten_raises(self):
+        with pytest.raises(ValueError, match="tx_filter_order"):
+            SystemParameters(tx_filter_order=10)
+
+    def test_antenna_separation_zero_raises(self):
+        with pytest.raises(ValueError, match="antenna_separation_mm"):
+            SystemParameters(antenna_separation_mm=0.0)
+
+    def test_antenna_separation_negative_raises(self):
+        with pytest.raises(ValueError, match="antenna_separation_mm"):
+            SystemParameters(antenna_separation_mm=-5.0)
+
+
+# ============================================================
 # Truncated Gauss — GH #19
 # ============================================================
 

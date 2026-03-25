@@ -85,6 +85,43 @@ TECHNOLOGY_RISK_THRESHOLDS = {
 }
 
 
+# === RF Physics Constants (GH #24) ===
+
+# PA class harmonic correction factors (dB)
+# Ref: PA linearity characteristics by class
+PA_CLASS_CORRECTIONS = {
+    'A':  5.0,   # Class A: best linearity, highest power
+    'AB': 0.0,   # Class AB: reference (most common)
+    'B': -3.0,   # Class B: moderate efficiency
+    'C': -8.0,   # Class C: high efficiency, poor linearity
+}
+
+# Harmonic engineering limits (dBc below fundamental)
+# Conservative limits for typical RF systems
+HARMONIC_ENGINEERING_LIMITS = {
+    2: -15.0,   # 2nd harmonic: -15 dBc
+    3: -25.0,   # 3rd harmonic: -25 dBc
+    4: -35.0,   # 4th harmonic: -35 dBc
+    5: -45.0,   # 5th harmonic: -45 dBc
+}
+
+# IMD saturation limit offset (dB above input power)
+# IM products cannot exceed this relative to fundamental
+IMD_SATURATION_OFFSET_DB = 10.0
+
+# Desensitization negligibility threshold (dB below noise floor)
+# Interference this far below noise floor is considered negligible
+DESENSE_NEGLIGIBILITY_THRESHOLD_DB = 20.0
+
+# Filter maximum rejection limits by type (dB)
+FILTER_MAX_REJECTION = {
+    'butterworth': 60.0,
+    'chebyshev': 70.0,
+    'saw': 50.0,
+    'baw': 55.0,
+}
+
+
 def get_technology_thresholds(victim_code: str) -> dict:
     """Look up risk thresholds based on victim band code pattern matching."""
     victim_upper = victim_code.upper()
