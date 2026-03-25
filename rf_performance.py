@@ -702,7 +702,7 @@ def get_technology_duty_cycle(band_code: str, system_params: SystemParameters) -
 
 def calculate_imd_from_intercept(
     p_in_dbm: float,
-    iip_dbm: float,
+    iip_n_dbm: float,
     order: int,
     p1db_dbm: Optional[float] = None
 ) -> float:
@@ -722,7 +722,7 @@ def calculate_imd_from_intercept(
 
     Args:
         p_in_dbm: Input power per tone in dBm
-        iip_dbm: Input intercept point (IIP2, IIP3, etc.) in dBm
+        iip_n_dbm: Input intercept point for the relevant order (IIP2, IIP3, etc.) in dBm
         order: IMD order (2, 3, 4, 5, 7)
         p1db_dbm: Optional P1dB compression point for more precise saturation clamping
 
@@ -732,35 +732,35 @@ def calculate_imd_from_intercept(
     if order == 2:
         # IM2: beat products (f1+f2, f1-f2)
         # P_IM2 = 2×P_in - IIP2
-        p_imd = 2 * p_in_dbm - iip_dbm
+        p_imd = 2 * p_in_dbm - iip_n_dbm
 
     elif order == 3:
         # IM3: 2f1±f2, 2f2±f1 products (most important for close-in interference)
         # P_IM3 = 3×P_in - 2×IIP3
-        p_imd = 3 * p_in_dbm - 2 * iip_dbm
+        p_imd = 3 * p_in_dbm - 2 * iip_n_dbm
 
     elif order == 4:
         # IM4: derived from IM2 mixing, typically 15-20 dB below IM2
-        im2_power = 2 * p_in_dbm - iip_dbm
+        im2_power = 2 * p_in_dbm - iip_n_dbm
         p_imd = im2_power - 18.0  # IM4 typically 18 dB below IM2
 
     elif order == 5:
         # IM5: 3f1±2f2, 3f2±2f1 products
         # P_IM5 = 5×P_in - 4×IIP5
         # IIP5 is typically IIP3 + 10 dB
-        iip5_estimated = iip_dbm + 10.0
+        iip5_estimated = iip_n_dbm + 10.0
         p_imd = 5 * p_in_dbm - 4 * iip5_estimated
 
     elif order == 7:
         # IM7: 4f1±3f2, 4f2±3f1 products
         # P_IM7 = 7×P_in - 6×IIP7
         # IIP7 is typically IIP3 + 15-20 dB
-        iip7_estimated = iip_dbm + 15.0
+        iip7_estimated = iip_n_dbm + 15.0
         p_imd = 7 * p_in_dbm - 6 * iip7_estimated
 
     else:
         # Generic higher order approximation
-        iipn_estimated = iip_dbm + (order - 3) * 5.0
+        iipn_estimated = iip_n_dbm + (order - 3) * 5.0
         p_imd = order * p_in_dbm - (order - 1) * iipn_estimated
 
     # Saturation clamp: IM products cannot exceed fundamental power in compression.
@@ -1192,11 +1192,11 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
     interference_at_victim_dbm = interference_at_tx_dbm - total_isolation_db
 
     # Step 2: Get victim receiver parameters
-    victim_sensitivity = get_victim_sensitivity_quantitative(victim_band_code, system_params)
-    
+    victim_sensitivity_dbm = get_victim_sensitivity_quantitative(victim_band_code, system_params)
+
     # Step 3: Calculate receiver noise floor using proper RF methodology
     thermal_noise_density_dbm_hz = system_params.thermal_noise_density_dbm_hz  # -174 dBm/Hz
-    
+
     # Technology-specific receiver parameters
     if 'GNSS' in victim_band_code.upper():
         rx_bandwidth_hz = 2e6      # 2 MHz GNSS bandwidth
@@ -1216,40 +1216,40 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
         required_cnr_db = 12.0     # WiFi SNR requirement
     elif 'BLE' in victim_band_code.upper():
         rx_bandwidth_hz = 1e6      # 1 MHz BLE bandwidth
-        noise_figure_db = system_params.noise_figure_db  
+        noise_figure_db = system_params.noise_figure_db
         required_cnr_db = 8.0      # BLE sensitivity requirement
     else:
         rx_bandwidth_hz = 5e6      # Default bandwidth
         noise_figure_db = system_params.noise_figure_db
         required_cnr_db = 10.0     # Default SNR
-    
+
     # Calculate receiver noise floor
     thermal_noise_dbm = thermal_noise_density_dbm_hz + 10 * math.log10(rx_bandwidth_hz)
     noise_floor_dbm = thermal_noise_dbm + noise_figure_db
-    
+
     # Step 4: Calculate interference margin (traditional approach)
-    interference_margin_db = victim_sensitivity - interference_at_victim_dbm
-    
+    interference_margin_db = victim_sensitivity_dbm - interference_at_victim_dbm
+
     # Step 5: Calculate professional desensitization using I/N method
     if interference_at_victim_dbm <= noise_floor_dbm:
         # Interference below noise floor - negligible desensitization
         desensitization_db = 0.0
-        
+
     else:
         # Professional desensitization calculation using I/N ratio
         # I/N ratio in linear terms
         i_over_n_linear = 10**((interference_at_victim_dbm - noise_floor_dbm) / 10.0)
-        
+
         # Standard RF desensitization formula: Desense = 10*log₁₀(1 + I/N)
         # This represents the increase in effective noise floor due to interference
         desensitization_db = 10 * math.log10(1 + i_over_n_linear)
-        
+
         # Alternative cross-check using direct interference impact for very strong interference
-        if interference_at_victim_dbm > victim_sensitivity:
+        if interference_at_victim_dbm > victim_sensitivity_dbm:
             # Calculate how much the effective sensitivity is degraded
             # Use a more realistic degradation model
-            excess_interference_db = interference_at_victim_dbm - victim_sensitivity
-            
+            excess_interference_db = interference_at_victim_dbm - victim_sensitivity_dbm
+
             # Apply realistic degradation scaling (not 1:1)
             if 'GNSS' in victim_band_code.upper():
                 # GNSS is very sensitive - use more conservative scaling
@@ -1257,10 +1257,10 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
             else:
                 # Other technologies are more robust
                 sensitivity_degradation_db = excess_interference_db * 0.4  # 40% scaling
-            
+
             # Use the larger of the two calculations but apply realistic limits
             desensitization_db = max(desensitization_db, sensitivity_degradation_db)
-        
+
         # Apply realistic engineering limits based on technology
         if 'GNSS' in victim_band_code.upper():
             # GNSS: >10 dB = GPS dead zones, cap at 15 dB max for realistic analysis
@@ -1268,34 +1268,34 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
         else:
             # Other technologies: cap at 30 dB max for realistic analysis
             desensitization_db = min(desensitization_db, 30.0)
-    
+
     # Step 6: Calculate additional performance metrics
     # Signal-to-interference ratio
     if interference_at_victim_dbm > -200:  # Valid interference level
         # Assume typical desired signal at sensitivity threshold
-        desired_signal_dbm = victim_sensitivity + 3.0  # 3 dB above sensitivity
+        desired_signal_dbm = victim_sensitivity_dbm + 3.0  # 3 dB above sensitivity
         sir_db = desired_signal_dbm - interference_at_victim_dbm
     else:
         sir_db = 999.0  # No interference
-        
+
     # Calculate effective sensitivity degradation
-    effective_sensitivity_dbm = victim_sensitivity + desensitization_db
-    
+    effective_sensitivity_dbm = victim_sensitivity_dbm + desensitization_db
+
     # Professional risk assessment based on desensitization levels and technology
     _SEVERITY_TO_NAME = {5: 'Critical', 4: 'High', 3: 'Medium', 2: 'Low', 1: 'Negligible'}
     risk_symbol, severity, _reason = assess_risk_severity_quantitative(
         interference_power_dbm=interference_at_victim_dbm,
-        victim_sensitivity_dbm=victim_sensitivity,
+        victim_sensitivity_dbm=victim_sensitivity_dbm,
         desensitization_db=desensitization_db,
         victim_code=victim_band_code,
         product_type=''  # Not available at this call site; unused by function logic
     )
     risk_level = _SEVERITY_TO_NAME.get(severity, 'Negligible')
-    
-    
+
+
     return {
         'interference_at_victim_dbm': interference_at_victim_dbm,
-        'victim_sensitivity_dbm': victim_sensitivity,
+        'victim_sensitivity_dbm': victim_sensitivity_dbm,
         'interference_margin_db': interference_margin_db,
         'desensitization_db': desensitization_db,
         'effective_sensitivity_dbm': effective_sensitivity_dbm,
@@ -1731,34 +1731,34 @@ def analyze_system_performance(interference_results: pd.DataFrame,
         
         # Determine aggressor power based on band type
         if 'LTE' in aggressors:
-            aggressor_power = system_params.lte_tx_power
+            aggressor_power_dbm = system_params.lte_tx_power
         elif 'WiFi' in aggressors:
-            aggressor_power = system_params.wifi_tx_power
+            aggressor_power_dbm = system_params.wifi_tx_power
         elif 'BLE' in aggressors:
-            aggressor_power = system_params.ble_tx_power
+            aggressor_power_dbm = system_params.ble_tx_power
         elif 'HaLow' in aggressors:
-            aggressor_power = system_params.halow_tx_power
+            aggressor_power_dbm = system_params.halow_tx_power
         else:
-            aggressor_power = 20.0  # Default
-            
+            aggressor_power_dbm = 20.0  # Default
+
         # Determine victim sensitivity
         if 'BLE' in victims:
-            victim_sensitivity = system_params.ble_sensitivity
+            victim_sensitivity_dbm = system_params.ble_sensitivity
         elif 'WiFi' in victims:
-            victim_sensitivity = system_params.wifi_sensitivity
+            victim_sensitivity_dbm = system_params.wifi_sensitivity
         elif 'HaLow' in victims:
-            victim_sensitivity = system_params.halow_sensitivity
+            victim_sensitivity_dbm = system_params.halow_sensitivity
         else:
-            victim_sensitivity = -90.0  # Default
-            
+            victim_sensitivity_dbm = -90.0  # Default
+
         # Calculate interference impact
         analysis = assess_interference_level(
-            freq_mhz, aggressor_power, victim_sensitivity, system_params
+            freq_mhz, aggressor_power_dbm, victim_sensitivity_dbm, system_params
         )
-        
+
         # Calculate IM3 power if this is an IM3 product
         if 'IM3' in product_type:
-            im3_power = calculate_im3_power(aggressor_power, system_params.iip3_dbm)
+            im3_power = calculate_im3_power(aggressor_power_dbm, system_params.iip3_dbm)
             analysis['im3_power_dbm'] = im3_power
         
         # Estimate PER
