@@ -319,3 +319,52 @@ class TestTechnologyThresholds:
         symbol, severity, _ = assess_risk_severity_quantitative(
             -80.0, -105.0, 6.0, 'NR_n77', 'IM3')
         assert symbol == '🟠'
+
+
+# ============================================================
+# GH #29: 3-tone IMD products
+# ============================================================
+
+class TestThreeToneIMD:
+    """GH #29: 3-tone IMD products."""
+
+    def test_3tone_disabled_by_default(self):
+        results, _ = calculate_all_products([BANDS['LTE_B3'], BANDS['WiFi_2G'], BANDS['BLE']])
+        im3_3t = [r for r in results if r['Type'] == 'IM3-3T']
+        assert len(im3_3t) == 0
+
+    def test_3tone_enabled_generates_products(self):
+        results, _ = calculate_all_products(
+            [BANDS['LTE_B3'], BANDS['WiFi_2G'], BANDS['BLE']],
+            include_3tone=True
+        )
+        im3_3t = [r for r in results if r['Type'] == 'IM3-3T']
+        assert len(im3_3t) > 0, "Should generate 3-tone IM3 products"
+
+    def test_3tone_product_has_three_aggressors(self):
+        results, _ = calculate_all_products(
+            [BANDS['LTE_B3'], BANDS['WiFi_2G'], BANDS['BLE']],
+            include_3tone=True
+        )
+        im3_3t = [r for r in results if r['Type'] == 'IM3-3T']
+        if im3_3t:
+            aggressors = im3_3t[0]['Aggressors']
+            assert aggressors.count(',') == 2, "Should have 3 aggressors"
+
+    def test_3tone_skipped_for_many_bands(self):
+        """More than 6 bands should skip 3-tone to avoid combinatorial explosion."""
+        bands = [BANDS['LTE_B1'], BANDS['LTE_B3'], BANDS['LTE_B7'],
+                 BANDS['LTE_B13'], BANDS['WiFi_2G'], BANDS['BLE'], BANDS['GNSS_L1']]
+        results, _ = calculate_all_products(bands, include_3tone=True)
+        im3_3t = [r for r in results if r['Type'] == 'IM3-3T']
+        assert len(im3_3t) == 0, "Should skip 3-tone when > 6 bands"
+
+    def test_3tone_positive_frequency_only(self):
+        """All 3-tone products should have positive frequency."""
+        results, _ = calculate_all_products(
+            [BANDS['LTE_B3'], BANDS['WiFi_2G'], BANDS['BLE']],
+            include_3tone=True
+        )
+        im3_3t = [r for r in results if r['Type'] == 'IM3-3T']
+        for p in im3_3t:
+            assert p['Frequency_MHz'] > 0

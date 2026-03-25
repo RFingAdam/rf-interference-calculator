@@ -2,7 +2,7 @@ from typing import List, Tuple, Dict
 from bands import Band
 from constants import get_technology_thresholds, DESENSE_NEGLIGIBILITY_THRESHOLD_DB
 
-def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2: bool = True, imd4: bool = False, imd5: bool = True, imd7: bool = False, aclr_margin: float = 0.0) -> Tuple[List[Dict], List[str]]:
+def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2: bool = True, imd4: bool = False, imd5: bool = True, imd7: bool = False, aclr_margin: float = 0.0, include_3tone: bool = False) -> Tuple[List[Dict], List[str]]:
     """
     Exhaustive IMD/harmonic/overlap logic for all selected bands, matching app.py.
     Returns (results, overlap_alerts).
@@ -473,6 +473,55 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
                                     Severity=severity,
                                     Details=f"IM7: 4×{A} {'+' if sign>0 else '-'} 3×{B} = {freq7:.1f} MHz (A={b1.code}, B={b2.code})",
                                 ))
+    # 3-tone IMD products (f1+f2-f3, f1-f2+f3, -f1+f2+f3)
+    # Only for <= 6 bands to limit combinatorial explosion
+    if include_3tone and n <= 6:
+        tx_bands = [b for b in selected_bands if not (b.tx_low == 0 and b.tx_high == 0)]
+        for i in range(len(tx_bands)):
+            for j in range(i+1, len(tx_bands)):
+                for k in range(j+1, len(tx_bands)):
+                    b1, b2, b3 = tx_bands[i], tx_bands[j], tx_bands[k]
+                    # Use center frequencies for 3-tone products
+                    f1 = (b1.tx_low + b1.tx_high) / 2
+                    f2 = (b2.tx_low + b2.tx_high) / 2
+                    f3 = (b3.tx_low + b3.tx_high) / 2
+
+                    # Generate all 3-tone IM3 combinations
+                    triple_freqs = [
+                        (f1 + f2 - f3, f'+{b1.code}+{b2.code}-{b3.code}'),
+                        (f1 - f2 + f3, f'+{b1.code}-{b2.code}+{b3.code}'),
+                        (-f1 + f2 + f3, f'-{b1.code}+{b2.code}+{b3.code}'),
+                    ]
+
+                    for freq, formula_str in triple_freqs:
+                        if freq <= 0:
+                            continue
+                        for victim in selected_bands:
+                            rx_low = victim.rx_low - guard
+                            rx_high = victim.rx_high + guard
+                            risk = rx_low <= freq <= rx_high
+
+                            if risk:
+                                risk_symbol, severity = assess_risk_severity(
+                                    freq, victim.code,
+                                    f'{b1.code},{b2.code},{b3.code}',
+                                    'IM3-3T'
+                                )
+                            else:
+                                risk_symbol, severity = "✅", 0
+
+                            results.append(dict(
+                                Type='IM3-3T',
+                                Product_Subtype='Triple-Beat IM3',
+                                Formula=formula_str,
+                                Frequency_MHz=round(freq, 2),
+                                Aggressors=f'{b1.code},{b2.code},{b3.code}',
+                                Victims=victim.code if risk else '',
+                                Risk=risk_symbol,
+                                Severity=severity,
+                                Details=f'3-tone IM3: {formula_str} = {freq:.1f} MHz',
+                            ))
+
     # ACLR check (optional, for all pairs)
     if aclr_margin > 0:
         for i in range(n):
@@ -564,6 +613,8 @@ def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2:
             return 8  # IM5
         elif imd_type == 'IM7':
             return 9  # IM7 - lowest typical signal level
+        elif imd_type == 'IM3-3T':
+            return 9  # 3-tone IM3 - similar level to IM7
         elif imd_type == 'ACLR':
             return 10  # ACLR - different mechanism
         else:

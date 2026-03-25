@@ -1,6 +1,6 @@
 """
 Tests for rf_performance.py — IMD calculations, harmonic levels, isolation, Monte Carlo.
-Refs GH #9, #12, #13, #15, #19, #20.
+Refs GH #9, #12, #13, #15, #19, #20, #28.
 """
 import math
 import pytest
@@ -18,6 +18,7 @@ from rf_performance import (
     monte_carlo_interference_analysis,
     monte_carlo_interference_analysis_multi,
     estimate_coupling_factor,
+    calculate_reciprocal_mixing,
 )
 
 
@@ -650,3 +651,110 @@ class TestPaprModel:
             assert hasattr(b, 'papr_db'), f"{b.code} missing papr_db"
             assert isinstance(b.papr_db, (int, float)), f"{b.code} papr_db not numeric"
             assert b.papr_db >= 0.0, f"{b.code} has negative PAPR: {b.papr_db}"
+
+
+# ============================================================
+# GH #30: Phase noise / reciprocal mixing model
+# ============================================================
+
+class TestReciprocalMixing:
+    """GH #30: Phase noise / reciprocal mixing model."""
+
+    def test_basic_reciprocal_mixing(self):
+        result = calculate_reciprocal_mixing(
+            aggressor_power_dbm=-30.0,
+            freq_offset_hz=10e6,  # 10 MHz offset
+            lo_phase_noise_dbc_hz=-100.0,
+            rx_bandwidth_hz=20e6
+        )
+        assert 'reciprocal_mixing_dbm' in result
+        assert isinstance(result['reciprocal_mixing_dbm'], float)
+
+    def test_closer_offset_worse_mixing(self):
+        result_close = calculate_reciprocal_mixing(-30.0, 1e6, -100.0, 20e6)
+        result_far = calculate_reciprocal_mixing(-30.0, 100e6, -100.0, 20e6)
+        assert result_close['reciprocal_mixing_dbm'] > result_far['reciprocal_mixing_dbm']
+
+    def test_stronger_aggressor_worse_mixing(self):
+        result_strong = calculate_reciprocal_mixing(-10.0, 10e6, -100.0, 20e6)
+        result_weak = calculate_reciprocal_mixing(-50.0, 10e6, -100.0, 20e6)
+        assert result_strong['reciprocal_mixing_dbm'] > result_weak['reciprocal_mixing_dbm']
+
+    def test_better_phase_noise_less_mixing(self):
+        result_bad = calculate_reciprocal_mixing(-30.0, 10e6, -90.0, 20e6)
+        result_good = calculate_reciprocal_mixing(-30.0, 10e6, -120.0, 20e6)
+        assert result_good['reciprocal_mixing_dbm'] < result_bad['reciprocal_mixing_dbm']
+
+    def test_invalid_offset_returns_safe(self):
+        result = calculate_reciprocal_mixing(-30.0, 0.0, -100.0, 20e6)
+        assert result['reciprocal_mixing_dbm'] == -200.0
+
+    def test_system_params_has_phase_noise(self):
+        params = SystemParameters()
+        assert params.lo_phase_noise_dbc_hz == -100.0
+
+
+# ============================================================
+# Blocking / P1dB compression — GH #28
+# ============================================================
+
+class TestBlockingAnalysis:
+    """GH #28: Receiver blocking and P1dB compression."""
+
+    def test_power_above_p1db_is_critical(self):
+        from rf_performance import analyze_blocking_risk
+        result = analyze_blocking_risk(-20.0, rx_p1db_dbm=-25.0)
+        assert result['risk_level'] == 'Critical'
+        assert result['risk_emoji'] == '\U0001f534'
+        assert result['p1db_margin_db'] < 0
+
+    def test_power_at_blocking_threshold_is_high(self):
+        from rf_performance import analyze_blocking_risk
+        # Blocking threshold = P1dB - 10 = -35 dBm
+        result = analyze_blocking_risk(-34.0, rx_p1db_dbm=-25.0)
+        assert result['risk_level'] == 'High'
+
+    def test_power_well_below_is_safe(self):
+        from rf_performance import analyze_blocking_risk
+        result = analyze_blocking_risk(-80.0, rx_p1db_dbm=-25.0)
+        assert result['risk_level'] == 'Safe'
+        assert result['p1db_margin_db'] > 30
+
+    def test_system_params_has_rx_p1db(self):
+        params = SystemParameters()
+        assert params.rx_p1db_dbm == -25.0
+
+    def test_blocking_margin_calculation(self):
+        from rf_performance import analyze_blocking_risk
+        result = analyze_blocking_risk(-30.0, rx_p1db_dbm=-20.0)
+        assert result['p1db_margin_db'] == pytest.approx(10.0)
+
+    def test_medium_risk_region(self):
+        """Power within 20 dB of P1dB but above blocking threshold."""
+        from rf_performance import analyze_blocking_risk
+        # P1dB = -25, blocking threshold = -35
+        # -40 dBm => p1db_margin = 15 dB (< 20), above threshold => Medium
+        result = analyze_blocking_risk(-40.0, rx_p1db_dbm=-25.0)
+        assert result['risk_level'] == 'Medium'
+
+    def test_low_risk_region(self):
+        """Power between 20 and 30 dB below P1dB."""
+        from rf_performance import analyze_blocking_risk
+        # P1dB = -25, -48 dBm => p1db_margin = 23 dB (20 < 23 < 30) => Low
+        result = analyze_blocking_risk(-48.0, rx_p1db_dbm=-25.0)
+        assert result['risk_level'] == 'Low'
+
+    def test_custom_blocking_margin(self):
+        """Custom blocking margin shifts the High/Medium boundary."""
+        from rf_performance import analyze_blocking_risk
+        # With margin=5: threshold = -25 - 5 = -30. -28 dBm is above threshold => High
+        result = analyze_blocking_risk(-28.0, rx_p1db_dbm=-25.0, blocking_margin_db=5.0)
+        assert result['risk_level'] == 'High'
+
+    def test_result_contains_all_keys(self):
+        from rf_performance import analyze_blocking_risk
+        result = analyze_blocking_risk(-50.0, rx_p1db_dbm=-25.0)
+        expected_keys = {'p1db_margin_db', 'blocking_margin_db', 'risk_level',
+                         'risk_emoji', 'description', 'interference_power_dbm',
+                         'rx_p1db_dbm'}
+        assert expected_keys == set(result.keys())

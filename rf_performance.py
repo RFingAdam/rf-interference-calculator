@@ -65,10 +65,11 @@ class SystemParameters:
     
     # === Receiver Sensitivities (Technology Standards) ===
     lte_sensitivity: float = -105.0       # dBm - LTE receiver sensitivity
-    wifi_sensitivity: float = -85.0       # dBm - WiFi receiver sensitivity  
+    wifi_sensitivity: float = -85.0       # dBm - WiFi receiver sensitivity
     ble_sensitivity: float = -95.0        # dBm - BLE receiver sensitivity
     gnss_sensitivity: float = -150.0      # dBm - GNSS receiver sensitivity (critical)
     halow_sensitivity: float = -90.0      # dBm - HaLow receiver sensitivity
+    rx_p1db_dbm: float = -25.0           # dBm - Receiver 1dB compression point (typical LNA)
     
     # === Environmental & System Parameters ===
     temperature_celsius: float = 25.0     # °C - Operating temperature
@@ -92,6 +93,9 @@ class SystemParameters:
     # === Antenna Separation (GH #17) ===
     antenna_separation_mm: float = 20.0   # Physical separation between antennas in mm
     coupling_type: str = "antenna"        # Coupling type: antenna, pcb_trace, board_level
+
+    # === Phase Noise / Reciprocal Mixing (GH #30) ===
+    lo_phase_noise_dbc_hz: float = -100.0  # dBc/Hz - LO phase noise at 100 kHz offset
 
     # === User Configuration Metadata ===
     configuration_name: str = "Default"   # User-defined configuration name
@@ -136,9 +140,15 @@ class QuantitativeResult:
     # Risk assessment
     risk_level: str                     # Critical/High/Medium/Low/Negligible
     risk_symbol: str                    # 🔴🟠🟡🔵✅
-    
+
     # Mathematical foundation
     mathematical_formula: str           # Underlying nonlinearity equation
+
+    # Blocking / P1dB compression analysis (GH #28)
+    blocking_risk_level: str = 'Safe'           # Critical/High/Medium/Low/Safe
+    blocking_risk_emoji: str = '\u2705'         # Emoji for blocking risk
+    blocking_p1db_margin_db: float = 99.0       # Margin to P1dB (dB)
+    blocking_description: str = ''              # Human-readable blocking assessment
 
 def calculate_hd3_from_iip3(tx_power_dbm: float, iip3_dbm: float, pa_class: str = "AB") -> float:
     """
@@ -530,6 +540,72 @@ def estimate_coupling_factor(
             base_coupling = 0.1 / sep_ratio  # Falls off with distance
 
     return max(0.01, min(1.0, base_coupling))
+
+
+def calculate_reciprocal_mixing(
+    aggressor_power_dbm: float,
+    freq_offset_hz: float,
+    lo_phase_noise_dbc_hz: float = -100.0,
+    rx_bandwidth_hz: float = 20e6
+) -> dict:
+    """
+    Calculate reciprocal mixing noise contribution.
+
+    When a strong signal is near the desired frequency, the LO's phase noise
+    skirts spread the interferer's energy across the receiver's IF bandwidth.
+    Critical for GNSS where cellular signals can be 100+ dB stronger.
+
+    Formula: P_rm = P_agg + L(f_offset) + 10*log10(B_rx)
+    where L(f_offset) is phase noise at the frequency offset in dBc/Hz
+
+    Args:
+        aggressor_power_dbm: Aggressor power at receiver input (dBm)
+        freq_offset_hz: Frequency offset between aggressor and victim (Hz)
+        lo_phase_noise_dbc_hz: LO phase noise at reference offset (dBc/Hz)
+        rx_bandwidth_hz: Receiver bandwidth (Hz)
+
+    Returns:
+        dict with reciprocal mixing analysis
+    """
+    if freq_offset_hz <= 0 or rx_bandwidth_hz <= 0:
+        return {
+            'reciprocal_mixing_dbm': -200.0,
+            'phase_noise_at_offset_dbc_hz': lo_phase_noise_dbc_hz,
+            'is_significant': False,
+            'description': 'Invalid parameters',
+        }
+
+    # Phase noise profile: -20 dB/decade from reference
+    # Reference: -100 dBc/Hz at 100 kHz offset (typical)
+    ref_offset_hz = 100e3  # 100 kHz reference
+
+    # Phase noise at actual offset (simplified -20 dB/decade model)
+    if freq_offset_hz < 1e3:  # Very close: flat region
+        phase_noise_at_offset = lo_phase_noise_dbc_hz + 20.0  # Close-in is worse
+    elif freq_offset_hz < ref_offset_hz:
+        # -20 dB/decade slope toward reference
+        phase_noise_at_offset = lo_phase_noise_dbc_hz + 20.0 * math.log10(ref_offset_hz / freq_offset_hz)
+    else:
+        # -20 dB/decade slope beyond reference
+        phase_noise_at_offset = lo_phase_noise_dbc_hz - 20.0 * math.log10(freq_offset_hz / ref_offset_hz)
+
+    # Reciprocal mixing power
+    rm_power_dbm = aggressor_power_dbm + phase_noise_at_offset + 10 * math.log10(rx_bandwidth_hz)
+
+    # Is it significant? Compare to typical GNSS noise floor (~-174 + 30 = -144 dBm in 1 MHz)
+    is_significant = rm_power_dbm > -140.0
+
+    # Determine if reciprocal mixing dominates
+    description = f'RM: {rm_power_dbm:.1f} dBm (PN={phase_noise_at_offset:.0f} dBc/Hz at {freq_offset_hz/1e6:.1f} MHz offset)'
+
+    return {
+        'reciprocal_mixing_dbm': rm_power_dbm,
+        'phase_noise_at_offset_dbc_hz': phase_noise_at_offset,
+        'freq_offset_hz': freq_offset_hz,
+        'rx_bandwidth_hz': rx_bandwidth_hz,
+        'is_significant': is_significant,
+        'description': description,
+    }
 
 
 def apply_duty_cycle_correction(
@@ -1232,6 +1308,66 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
         'required_cnr_db': required_cnr_db
     }
 
+def analyze_blocking_risk(
+    interference_power_at_rx_dbm: float,
+    rx_p1db_dbm: float = -25.0,
+    blocking_margin_db: float = 10.0
+) -> dict:
+    """
+    Analyze receiver blocking and P1dB compression risk.
+
+    Blocking occurs when total out-of-band interference power at the RX input
+    approaches the receiver's 1dB compression point, causing gain compression
+    regardless of frequency selectivity.
+
+    Args:
+        interference_power_at_rx_dbm: Total interference power at receiver input (dBm)
+        rx_p1db_dbm: Receiver 1dB compression point (dBm)
+        blocking_margin_db: Safety margin below P1dB for blocking onset (dB)
+
+    Returns:
+        dict with blocking analysis results
+    """
+    # Margin to P1dB
+    p1db_margin = rx_p1db_dbm - interference_power_at_rx_dbm
+
+    # Blocking threshold is typically P1dB minus margin
+    blocking_threshold = rx_p1db_dbm - blocking_margin_db
+    blocking_margin = blocking_threshold - interference_power_at_rx_dbm
+
+    # Risk assessment
+    if interference_power_at_rx_dbm >= rx_p1db_dbm:
+        risk_level = 'Critical'
+        risk_emoji = '\U0001f534'
+        description = f'Receiver in compression ({p1db_margin:.1f}dB past P1dB)'
+    elif interference_power_at_rx_dbm >= blocking_threshold:
+        risk_level = 'High'
+        risk_emoji = '\U0001f7e0'
+        description = f'Blocking onset ({blocking_margin:.1f}dB margin to threshold)'
+    elif p1db_margin < 20.0:
+        risk_level = 'Medium'
+        risk_emoji = '\U0001f7e1'
+        description = f'Moderate blocking risk ({p1db_margin:.1f}dB to P1dB)'
+    elif p1db_margin < 30.0:
+        risk_level = 'Low'
+        risk_emoji = '\U0001f535'
+        description = f'Low blocking risk ({p1db_margin:.1f}dB to P1dB)'
+    else:
+        risk_level = 'Safe'
+        risk_emoji = '\u2705'
+        description = f'No blocking concern ({p1db_margin:.1f}dB margin)'
+
+    return {
+        'p1db_margin_db': p1db_margin,
+        'blocking_margin_db': blocking_margin,
+        'risk_level': risk_level,
+        'risk_emoji': risk_emoji,
+        'description': description,
+        'interference_power_dbm': interference_power_at_rx_dbm,
+        'rx_p1db_dbm': rx_p1db_dbm,
+    }
+
+
 def get_victim_sensitivity_quantitative(victim_band_code: str, system_params: SystemParameters) -> float:
     """Get receiver sensitivity for different technologies with system parameter integration"""
     
@@ -1356,6 +1492,13 @@ def analyze_interference_quantitative(interference_products: List[Dict],
                     interference_at_tx_dbm, victim_code, aggressors, system_params
                 )
                 
+                # Blocking analysis (GH #28)
+                interference_at_victim_dbm = victim_analysis['interference_at_victim_dbm']
+                blocking_result = analyze_blocking_risk(
+                    interference_at_victim_dbm,
+                    system_params.rx_p1db_dbm
+                )
+
                 # Create comprehensive quantitative result
                 result = QuantitativeResult(
                     frequency_mhz=frequency_mhz,
@@ -1365,13 +1508,17 @@ def analyze_interference_quantitative(interference_products: List[Dict],
                     aggressor_power_dbm=aggressor_power_dbm,
                     interference_level_dbc=interference_dbc,
                     interference_at_tx_dbm=interference_at_tx_dbm,
-                    interference_at_victim_dbm=victim_analysis['interference_at_victim_dbm'],
+                    interference_at_victim_dbm=interference_at_victim_dbm,
                     victim_sensitivity_dbm=victim_analysis['victim_sensitivity_dbm'],
                     interference_margin_db=victim_analysis['interference_margin_db'],
                     desensitization_db=victim_analysis['desensitization_db'],
                     risk_level=victim_analysis['risk_level'],
                     risk_symbol=victim_analysis['risk_symbol'],
-                    mathematical_formula=formula
+                    mathematical_formula=formula,
+                    blocking_risk_level=blocking_result['risk_level'],
+                    blocking_risk_emoji=blocking_result['risk_emoji'],
+                    blocking_p1db_margin_db=blocking_result['p1db_margin_db'],
+                    blocking_description=blocking_result['description'],
                 )
                 
                 quantitative_results.append(result)
@@ -1404,6 +1551,8 @@ def create_quantitative_summary(results: List[QuantitativeResult]) -> pd.DataFra
             'Margin (dB)': f"{result.interference_margin_db:+.1f}",
             'Desense (dB)': f"{result.desensitization_db:.2f}",
             'Risk': f"{result.risk_symbol} {result.risk_level}",
+            'Blocking': f"{result.blocking_risk_emoji} {result.blocking_risk_level}",
+            'P1dB Margin (dB)': f"{result.blocking_p1db_margin_db:+.1f}",
             'Mathematical Formula': result.mathematical_formula,
             'Analysis Method': 'RF Polynomial Nonlinearity'
         })

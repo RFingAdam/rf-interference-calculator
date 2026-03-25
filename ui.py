@@ -15,6 +15,7 @@ from io import BytesIO
 try:
     from rf_performance import (
         analyze_interference_quantitative,
+        analyze_blocking_risk,
         create_quantitative_summary,
         RF_SYSTEM_PRESETS,
         SystemParameters,
@@ -210,6 +211,7 @@ def create_rf_spectrum_chart(quantitative_results, rf_params):
                     f"At Victim: {r.interference_at_victim_dbm:.1f} dBm<br>" +
                     f"Margin: {r.interference_margin_db:+.1f} dB<br>" +
                     f"Risk: {r.risk_symbol} {r.risk_level}<br>" +
+                    f"Blocking: {r.blocking_risk_emoji} {r.blocking_risk_level} (P1dB margin: {r.blocking_p1db_margin_db:+.1f} dB)<br>" +
                     f"TX: {', '.join(r.aggressors)}<br>" +
                     f"RX: {', '.join(r.victims) if hasattr(r, 'victims') else 'N/A'}"
                 )
@@ -345,6 +347,7 @@ def enhance_results_with_quantitative(results_df: pd.DataFrame,
     p_victim_list = []
     desense_list = []
     margin_list = []
+    blocking_list = []
     compliance_list = []
     severity_reason_list = []
 
@@ -359,6 +362,7 @@ def enhance_results_with_quantitative(results_df: pd.DataFrame,
             p_victim_list.append(f"{qr.interference_at_victim_dbm:.1f}")
             desense_list.append(f"{qr.desensitization_db:.1f}")
             margin_list.append(f"{qr.interference_margin_db:+.1f}")
+            blocking_list.append(f"{qr.blocking_risk_emoji} {qr.blocking_risk_level}")
 
             # Check compliance if regulatory module available
             if REGULATORY_AVAILABLE:
@@ -384,6 +388,7 @@ def enhance_results_with_quantitative(results_df: pd.DataFrame,
             p_victim_list.append("-")
             desense_list.append("-")
             margin_list.append("-")
+            blocking_list.append("-")
             compliance_list.append("-")
             severity_reason_list.append("-")
 
@@ -393,6 +398,7 @@ def enhance_results_with_quantitative(results_df: pd.DataFrame,
     enhanced_df['P_RX (dBm)'] = p_victim_list
     enhanced_df['Desense (dB)'] = desense_list
     enhanced_df['Margin (dB)'] = margin_list
+    enhanced_df['Blocking'] = blocking_list
     enhanced_df['Compliance'] = compliance_list
 
     return enhanced_df
@@ -736,6 +742,9 @@ with st.sidebar:
                 # GH #17: Antenna separation for frequency-dependent coupling
                 custom_antenna_separation = st.slider("Antenna Separation (mm)", 5, 200, 20,
                                                       help="Physical separation between antennas in mm (affects coupling at frequency)")
+                # GH #30: LO Phase Noise for reciprocal mixing analysis
+                custom_lo_phase_noise = st.slider("LO Phase Noise (dBc/Hz @ 100kHz)", -130.0, -80.0, -100.0, 1.0,
+                                                   help="Local oscillator phase noise at 100 kHz offset")
             
             # ✅ CORRECTED: System Linearity Parameters (RF Engineering Approach)
             st.markdown("**System Linearity Characteristics**")
@@ -784,10 +793,18 @@ with st.sidebar:
                 custom_ble_sens = st.slider("BLE Sensitivity (dBm)", -110, -80, -95, 
                                           help="BLE receiver sensitivity", disabled='BLE' not in selected_techs)
             with rx_col4:
-                custom_gnss_sens = st.slider("GNSS Sensitivity (dBm)", -160, -140, -150, 
-                                           help="GNSS receiver sensitivity (very sensitive!)", 
+                custom_gnss_sens = st.slider("GNSS Sensitivity (dBm)", -160, -140, -150,
+                                           help="GNSS receiver sensitivity (very sensitive!)",
                                            disabled='GNSS' not in selected_techs)
-            
+
+            # Receiver compression (GH #28)
+            st.markdown("**Receiver Compression**")
+            custom_rx_p1db = st.slider("RX P1dB (dBm)", -40.0, -10.0, -25.0, 1.0,
+                                       help="Receiver 1dB compression point. "
+                                            "Signals approaching this level cause gain compression "
+                                            "regardless of frequency selectivity.",
+                                       key="rx_p1db")
+
             # Create custom parameters object with comprehensive RF parameters
             rf_params = SystemParameters(
                 # TX Power Levels
@@ -826,11 +843,17 @@ with st.sidebar:
                 # GH #17: Antenna Separation
                 antenna_separation_mm=custom_antenna_separation,
 
+                # GH #30: Phase Noise
+                lo_phase_noise_dbc_hz=custom_lo_phase_noise,
+
                 # Receiver Sensitivities
                 lte_sensitivity=custom_lte_sens,
                 wifi_sensitivity=custom_wifi_sens,
                 ble_sensitivity=custom_ble_sens,
-                gnss_sensitivity=custom_gnss_sens
+                gnss_sensitivity=custom_gnss_sens,
+
+                # GH #28: Receiver compression
+                rx_p1db_dbm=custom_rx_p1db
             )
             
             st.success("Custom parameters configured")
@@ -1132,8 +1155,12 @@ with col_config3:
     # IM7 Products - Very high order (usually weak but sometimes critical)
     imd7_enabled = st.checkbox("IM7 Products", default_imd7, help="Seventh-order: Higher-order products")
 
+    # 3-tone IMD Products (GH #29) - Triple-beat from 3 transmitters
+    include_3tone = st.checkbox("Include 3-tone IMD (IM3-3T)", value=False,
+                                help="Triple-beat products from 3 transmitters. Only for ≤6 bands.")
+
         # Show what will be calculated
-if any([harmonics_enabled, imd2_enabled, imd3_enabled, imd4_enabled, imd5_enabled, imd7_enabled, envelope_hd_enabled]):
+if any([harmonics_enabled, imd2_enabled, imd3_enabled, imd4_enabled, imd5_enabled, imd7_enabled, envelope_hd_enabled, include_3tone]):
     with st.expander("Analysis Summary"):
         products = []
         if harmonics_enabled and harmonic_orders:
@@ -1148,6 +1175,8 @@ if any([harmonics_enabled, imd2_enabled, imd3_enabled, imd4_enabled, imd5_enable
             products.append("**IM5**: 3f₁±2f₂, 2f₁±3f₂ - Close-in spurs affecting EVM")
         if imd7_enabled:
             products.append("**IM7**: Higher-order products - Typically weak but can be critical")
+        if include_3tone:
+            products.append("**IM3-3T**: f₁+f₂-f₃ triple-beat products from 3 transmitters")
         if envelope_hd_enabled:
             products.append("**Envelope HD**: 2(f₁±f₂) - Harmonics of beat frequencies")
         
@@ -1157,8 +1186,9 @@ if any([harmonics_enabled, imd2_enabled, imd3_enabled, imd4_enabled, imd5_enable
             st.caption("Based on 5th-order polynomial nonlinearity model. See Mathematical Formulas section for details.")# Calculate Button with enhanced logic and validation
 enabled_products = sum([
     len(harmonic_orders) if harmonics_enabled else 0,
-    int(imd2_enabled), int(imd3_enabled), int(imd4_enabled), 
-    int(imd5_enabled), int(imd7_enabled), int(envelope_hd_enabled)
+    int(imd2_enabled), int(imd3_enabled), int(imd4_enabled),
+    int(imd5_enabled), int(imd7_enabled), int(envelope_hd_enabled),
+    int(include_3tone)
 ])
 calculation_ready = len(available_bands) > 0 and enabled_products > 0
 
@@ -1207,7 +1237,8 @@ if st.button("Calculate Interference", type="primary", use_container_width=True,
                         imd2=imd2_enabled,
                         imd4=imd4_enabled,
                         imd5=imd5_enabled,
-                        imd7=imd7_enabled
+                        imd7=imd7_enabled,
+                        include_3tone=include_3tone
                     )
                     
                     # Add scenario info
@@ -1226,7 +1257,8 @@ if st.button("Calculate Interference", type="primary", use_container_width=True,
                     imd2=imd2_enabled,
                     imd4=imd4_enabled,
                     imd5=imd5_enabled,
-                    imd7=imd7_enabled
+                    imd7=imd7_enabled,
+                    include_3tone=include_3tone
                 )
         
         if results_list:
@@ -1478,7 +1510,7 @@ if st.button("Calculate Interference", type="primary", use_container_width=True,
 
             # Row 2: Compliance and quantitative metrics
             if quantitative_results:
-                comp_col1, comp_col2, comp_col3, comp_col4 = st.columns(4)
+                comp_col1, comp_col2, comp_col3, comp_col4, comp_col5 = st.columns(5)
                 with comp_col1:
                     if REGULATORY_AVAILABLE:
                         violations = compliance_summary.get('emission_violations', 0)
@@ -1486,7 +1518,7 @@ if st.button("Calculate Interference", type="primary", use_container_width=True,
                             st.metric("3GPP Compliance", f"✗ {violations} Violations",
                                      delta=f"-{violations}", delta_color="inverse")
                         else:
-                            st.metric("3GPP Compliance", "✓ PASS")
+                            st.metric("3GPP Compliance", "PASS")
                     else:
                         st.metric("3GPP Compliance", "N/A")
 
@@ -1513,6 +1545,18 @@ if st.button("Calculate Interference", type="primary", use_container_width=True,
                         st.metric("Min Margin", "N/A",
                                  help="Positive = safe, Negative = interference above sensitivity")
 
+                with comp_col5:
+                    if quantitative_results:
+                        min_p1db_margin = min([r.blocking_p1db_margin_db for r in quantitative_results])
+                        worst_blocking = min(quantitative_results,
+                                             key=lambda r: r.blocking_p1db_margin_db)
+                        st.metric("Min P1dB Margin", f"{min_p1db_margin:+.1f} dB",
+                                 help=f"Margin to receiver compression point. "
+                                      f"Worst: {worst_blocking.blocking_risk_level}")
+                    else:
+                        st.metric("Min P1dB Margin", "N/A",
+                                 help="Margin to receiver 1dB compression point")
+
             st.markdown("---")
 
             # =========================================================================
@@ -1522,7 +1566,7 @@ if st.button("Calculate Interference", type="primary", use_container_width=True,
             # Select columns for display
             display_columns = ['Type', 'Frequency', 'Aggressors', 'Victims', 'Risk']
             if 'P_TX (dBm)' in results.columns:
-                display_columns.extend(['P_TX (dBm)', 'P_RX (dBm)', 'Desense (dB)', 'Margin (dB)', 'Compliance'])
+                display_columns.extend(['P_TX (dBm)', 'P_RX (dBm)', 'Desense (dB)', 'Margin (dB)', 'Blocking', 'Compliance'])
 
             # Filter to available columns
             display_columns = [c for c in display_columns if c in results.columns]
