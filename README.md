@@ -9,10 +9,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/RFingAdam/rf-interference-calculator/actions/workflows/test.yml"><img src="https://github.com/RFingAdam/rf-interference-calculator/actions/workflows/test.yml/badge.svg" alt="Tests"/></a>
   <img src="https://img.shields.io/badge/Python-3.x-blue.svg" alt="Python"/>
   <img src="https://img.shields.io/badge/Streamlit-Web_App-FF4B4B.svg" alt="Streamlit"/>
   <img src="https://img.shields.io/badge/Bands-85-purple.svg" alt="Bands"/>
-  <img src="https://img.shields.io/badge/Version-2.1.0-green.svg" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-2.2.0-green.svg" alt="Version"/>
   <img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License"/>
 </p>
 
@@ -20,15 +21,17 @@
 
 A professional RF engineering tool for analyzing interference, harmonics, and intermodulation products across 85 wireless bands -- including 5G NR FR1 -- with comprehensive RF system performance analysis, unified risk assessment, and Monte Carlo simulation.
 
-## What's New in v2.1.0
+## What's New in v2.2.0
 
-- **5G NR FR1 support**: 14 NR bands (n1 through n79) with full power estimation, duty cycle, and sensitivity data
-- **Unified risk assessment**: Bridges frequency-based and power-based analysis into a single consistent result via `calculate_unified_risk()`
-- **Monte Carlo simulation fixed**: New multi-band wrapper correctly connects the UI to the analysis engine
-- **Coupling factor control**: User-configurable slider with Monte Carlo variation for sensitivity analysis
-- **34 isolation matrix pairs**: Added ~20 new NR-WiFi, NR-GNSS, and cross-technology coexistence pairs
-- **Professional UI polish**: Removed ~80 emoji, streamlined sidebar, consolidated footer, unified chart colors
-- **Centralized constants**: New `constants.py` module as single source of truth for colors, risk styles, and version
+- **Technology-dependent risk thresholds**: GNSS, WiFi/BLE, LoRa, and LTE/NR each have appropriate desensitization sensitivity levels
+- **Receiver blocking analysis**: 5-tier blocking risk assessment with configurable RX P1dB parameter
+- **3-tone IMD products**: Triple-beat intermodulation from 3 simultaneous transmitters
+- **Phase noise model**: LO phase noise contribution to interference, critical for GNSS analysis
+- **Physics-based RF models**: Frequency-dependent TX filters, coupling factors, and PAPR-dependent harmonics
+- **Robust Monte Carlo**: Truncated distributions, temperature coefficients, and bounded sampling
+- **pytest framework**: 174 tests with GitHub Actions CI on Python 3.10/3.11/3.12
+- **Named RF constants**: PA class corrections, harmonic limits, and filter parameters with source references
+- **14 bug fixes**: IMD saturation clamp, GNSS sensitivity, harmonic isolation floor, bandwidth normalization, and more
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
 
@@ -51,6 +54,21 @@ See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
 - **Regulatory Analysis**: Generate interference studies with 3GPP/FCC compliance checking
 - **Design Optimization**: Engineering recommendations for isolation, filtering, and layout
 - **Engineering Training**: Standard RF calculations with professional methodology
+
+## For Engineers
+
+### Interpreting Results
+- **Desensitization (dB)**: Increase in effective noise floor from interference. 1 dB is noticeable, 3 dB halves range, >6 dB is significant.
+- **Blocking risk**: Separate from desensitization — a strong signal can cause blocking without being in-band.
+- **Risk thresholds vary by technology**: GNSS is flagged critical at 8 dB, while LTE tolerates 12 dB before critical.
+- **Monte Carlo p95**: The 95th percentile represents worst-case across manufacturing tolerances and temperature.
+
+### Recommended Workflow
+1. Start with frequency-only analysis to identify which products land in victim bands
+2. Enable quantitative analysis with realistic system parameters
+3. Run Monte Carlo (500+ iterations) for statistical confidence
+4. Check regulatory compliance for products near emission limits
+5. Use blocking analysis for strong out-of-band interferers
 
 ## Professional RF Performance Analysis
 
@@ -194,13 +212,27 @@ rf-interference-calculator/
 
 ## Versioning
 
-Current version: **v2.1.0** -- 5G NR support, unified risk assessment, Monte Carlo fixes, and professional UI polish.
+Current version: **v2.2.0** -- Technology-dependent risk thresholds, blocking analysis, 3-tone IMD, phase noise model, and 174 tests.
 
 Previous releases: [CHANGELOG.md](CHANGELOG.md)
 
 ## Authors
 
 Adam Engelbrecht (RFingAdam)
+
+## Limitations
+
+This tool provides engineering estimates, not certification-grade predictions. Known limitations:
+
+- **Modulation effects simplified**: PAPR model uses 30% correction factor; actual harmonic generation depends on signal statistics
+- **Single-path coupling**: Each aggressor-victim pair uses one coupling path; real systems have multiple coupling mechanisms
+- **No antenna pattern modeling**: Antenna gain patterns at harmonic frequencies are simplified to lookup adjustments
+- **Linear phase noise model**: -20 dB/decade approximation; real oscillators have more complex noise profiles
+- **2D isolation model**: Board-level coupling doesn't account for 3D enclosure effects or cable routing
+- **No AGC modeling**: Receiver automatic gain control dynamics not simulated
+- **Steady-state analysis**: Does not model transient interference from TDD switching or burst transmissions
+
+Results should be validated against measurements for regulatory submissions.
 
 ## License
 

@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-03-25
+
+### Added
+- **Technology-dependent desensitization thresholds**: GNSS (8/3/1/0.5 dB), WiFi/BLE (6/3/1/0.5 dB), LoRa (3/1/0.5/0.1 dB), LTE/NR (12/6/3/1 dB) — each technology now has appropriate risk sensitivity (#10)
+- **Receiver blocking and P1dB compression analysis**: New 5-tier blocking risk assessment alongside desensitization, with configurable RX P1dB parameter (#28)
+- **3-tone IMD products (IM3-3T)**: Triple-beat intermodulation from 3 simultaneous transmitters, with UI toggle for ≤6 bands (#29)
+- **Phase noise / reciprocal mixing model**: LO phase noise contribution to interference with -20 dB/decade profile, critical for GNSS analysis (#30)
+- **Frequency-dependent TX filter model**: Harmonic filtering now uses actual filter response curves (Butterworth/Chebyshev/SAW/BAW) instead of fixed values (#16)
+- **Frequency-dependent coupling factor**: Physics-based coupling estimation from frequency, antenna separation, and coupling type (#17)
+- **PAPR modulation-dependent harmonics**: All 85 bands now include peak-to-average power ratio affecting harmonic generation levels (#18)
+- **Truncated Monte Carlo distributions**: Bounded sampling prevents unphysical parameter values in statistical analysis (#19)
+- **Temperature coefficients**: TX power, noise figure, and sensitivity now degrade with temperature in Monte Carlo (#20)
+- **pytest framework**: 174 tests covering calculations, risk assessment, Monte Carlo, bands, isolation, regulatory limits
+- **pyproject.toml**: Modern Python packaging with pip install support (#22)
+- **GitHub Actions CI**: Automated testing on Python 3.10/3.11/3.12 (#23)
+- **SystemParameters validation**: Physical range checking prevents invalid parameter combinations (#26)
+- **Named RF physics constants**: PA class corrections, harmonic limits, filter parameters extracted with source references (#24)
+
+### Fixed
+- **RISK_PIE_COLOR_MAP key mismatch**: 'Negligible' changed to 'Safe' to match all other risk dicts (#8)
+- **IMD saturation clamp**: IM3/IM5/IM7 power now clamped at P_in + 10 dB to prevent thermodynamically impossible levels (#9)
+- **GNSS sensitivity in frequency-only assessment**: In-band products on GNSS/public safety victims now start at severity ≥ 3 (#11)
+- **Harmonic isolation floor**: Total isolation after harmonic adjustment clamped at 0 dB minimum (#12)
+- **Monte Carlo worst-product selection**: Now uses severity magnitude for tie-breaking, not just risk emoji (#13)
+- **Bandwidth normalization clamp**: Correction no longer increases product power when measurement BW exceeds product BW (#14)
+- **IIP2 bias optimization**: Non-optimized baseline corrected from -2 dB penalty to 0 dB (theoretical) (#15)
+- **Duplicate risk assessment**: Consolidated assess_quantitative_risk into single canonical function (#27)
+- **__init__.py**: Fixed entry point reference and version, compatible with pytest (#22)
+
+### Changed
+- Risk assessment uses centralized `TECHNOLOGY_RISK_THRESHOLDS` dictionary
+- Desensitization negligibility threshold extracted to named constant (20 dB)
+- Filter max rejection values extracted to `FILTER_MAX_REJECTION` constant
+
 ## [2.1.0] - 2026-02-08 - 5G NR Support, Unified Risk Assessment & UI Polish
 
 ### Added

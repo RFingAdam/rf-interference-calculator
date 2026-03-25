@@ -5,7 +5,7 @@ Single source of truth for colors, risk styles, version, and other
 shared constants used across modules.
 """
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 # Product type color scheme for Plotly charts
 # Harmonics: warm colors (progressive severity by order)
