@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rf-interference-calculator"
+version = "2.1.0"
+description = "RF harmonic and intermodulation interference analysis tool for co-located radio modules"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.10"
+authors = [
+    { name = "Adam Engelbrecht" },
+]
+keywords = ["rf", "interference", "harmonic", "intermodulation", "5g-nr", "lte", "emi", "emc"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Telecommunications Industry",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "streamlit>=1.28.0",
+    "pandas>=2.0.0",
+    "altair>=5.0.0",
+    "openpyxl>=3.1.0",
+    "pyperclip>=1.8.0",
+    "python-docx>=0.8.11",
+    "matplotlib>=3.5.0,<3.8.0",
+    "seaborn>=0.11.0",
+    "numpy>=1.21.0",
+    "reportlab>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aengel-techworx/rf-interference-calculator"
+Repository = "https://github.com/aengel-techworx/rf-interference-calculator"
+Issues = "https://github.com/aengel-techworx/rf-interference-calculator/issues"
+
+[project.scripts]
+rf-calc = "ui:main"

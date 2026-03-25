@@ -15,6 +15,7 @@ from typing import Dict, List, Tuple, Optional
 import pandas as pd
 import numpy as np
 from constants import get_technology_thresholds
+from calculator import assess_risk_severity_quantitative
 
 @dataclass
 class SystemParameters:
@@ -1116,7 +1117,15 @@ def calculate_interference_at_victim_quantitative(interference_at_tx_dbm: float,
     effective_sensitivity_dbm = victim_sensitivity + desensitization_db
     
     # Professional risk assessment based on desensitization levels and technology
-    risk_level, risk_symbol = assess_quantitative_risk(desensitization_db, victim_band_code)
+    _SEVERITY_TO_NAME = {5: 'Critical', 4: 'High', 3: 'Medium', 2: 'Low', 1: 'Negligible'}
+    risk_symbol, severity, _reason = assess_risk_severity_quantitative(
+        interference_power_dbm=interference_at_victim_dbm,
+        victim_sensitivity_dbm=victim_sensitivity,
+        desensitization_db=desensitization_db,
+        victim_code=victim_band_code,
+        product_type=''  # Not available at this call site; unused by function logic
+    )
+    risk_level = _SEVERITY_TO_NAME.get(severity, 'Negligible')
     
     
     return {
@@ -1152,31 +1161,6 @@ def get_victim_sensitivity_quantitative(victim_band_code: str, system_params: Sy
         return system_params.halow_sensitivity # -90 dBm
     else:
         return -100.0  # Conservative default
-
-def assess_quantitative_risk(desensitization_db: float, victim_band_code: str) -> Tuple[str, str]:
-    """
-    Professional risk assessment based on receiver desensitization levels
-    Updated for realistic and practical desensitization thresholds
-    
-    Args:
-        desensitization_db: Calculated receiver desensitization in dB
-        victim_band_code: Victim band for context-aware risk assessment
-        
-    Returns:
-        (risk_level, risk_symbol)
-    """
-    thresholds = get_technology_thresholds(victim_band_code)
-
-    if desensitization_db >= thresholds['critical']:
-        return ('Critical', '🔴')
-    elif desensitization_db >= thresholds['high']:
-        return ('High', '🟠')
-    elif desensitization_db >= thresholds['medium']:
-        return ('Medium', '🟡')
-    elif desensitization_db >= thresholds['low']:
-        return ('Low', '🔵')
-    else:
-        return ('Safe', '✅')
 
 def get_aggressor_power_quantitative(band_code: str, system_params: SystemParameters) -> float:
     """
