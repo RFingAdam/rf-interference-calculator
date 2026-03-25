@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import pandas as pd
 import numpy as np
+from constants import get_technology_thresholds
 
 @dataclass
 class SystemParameters:
@@ -169,7 +170,8 @@ def calculate_hd2_from_iip2(tx_power_dbm: float, iip2_dbm: float, bias_optimized
     hd2_basic = -power_delta  # Negative because it's dBc below carrier
     
     # Bias optimization correction
-    bias_correction = 3.0 if bias_optimized else -2.0
+    # Optimization provides push-pull cancellation benefit; non-optimized is at theoretical baseline
+    bias_correction = 3.0 if bias_optimized else 0.0
     
     # Device symmetry effects (HD2 very sensitive to balance)
     if power_delta < 10:  # Conservative power - good balance
@@ -555,12 +557,14 @@ def get_technology_duty_cycle(band_code: str, system_params: SystemParameters) -
 def calculate_imd_from_intercept(
     p_in_dbm: float,
     iip_dbm: float,
-    order: int
+    order: int,
+    p1db_dbm: Optional[float] = None
 ) -> float:
     """
     Calculate IMD power using standard RF intercept point formulas.
 
     CORRECTED: Uses proper two-tone IMD equations instead of empirical HD scaling.
+    Includes saturation clamp to prevent unphysical results when P_in >= IIP.
 
     Standard RF formulas (two equal-power tones):
     - IM2: P_IM2 = 2×P_in - IIP2  (beat products: f1±f2)
@@ -574,6 +578,7 @@ def calculate_imd_from_intercept(
         p_in_dbm: Input power per tone in dBm
         iip_dbm: Input intercept point (IIP2, IIP3, etc.) in dBm
         order: IMD order (2, 3, 4, 5, 7)
+        p1db_dbm: Optional P1dB compression point for more precise saturation clamping
 
     Returns:
         IMD product power in dBm
@@ -581,36 +586,46 @@ def calculate_imd_from_intercept(
     if order == 2:
         # IM2: beat products (f1+f2, f1-f2)
         # P_IM2 = 2×P_in - IIP2
-        return 2 * p_in_dbm - iip_dbm
+        p_imd = 2 * p_in_dbm - iip_dbm
 
     elif order == 3:
         # IM3: 2f1±f2, 2f2±f1 products (most important for close-in interference)
         # P_IM3 = 3×P_in - 2×IIP3
-        return 3 * p_in_dbm - 2 * iip_dbm
+        p_imd = 3 * p_in_dbm - 2 * iip_dbm
 
     elif order == 4:
         # IM4: derived from IM2 mixing, typically 15-20 dB below IM2
         im2_power = 2 * p_in_dbm - iip_dbm
-        return im2_power - 18.0  # IM4 typically 18 dB below IM2
+        p_imd = im2_power - 18.0  # IM4 typically 18 dB below IM2
 
     elif order == 5:
         # IM5: 3f1±2f2, 3f2±2f1 products
         # P_IM5 = 5×P_in - 4×IIP5
         # IIP5 is typically IIP3 + 10 dB
         iip5_estimated = iip_dbm + 10.0
-        return 5 * p_in_dbm - 4 * iip5_estimated
+        p_imd = 5 * p_in_dbm - 4 * iip5_estimated
 
     elif order == 7:
         # IM7: 4f1±3f2, 4f2±3f1 products
         # P_IM7 = 7×P_in - 6×IIP7
         # IIP7 is typically IIP3 + 15-20 dB
         iip7_estimated = iip_dbm + 15.0
-        return 7 * p_in_dbm - 6 * iip7_estimated
+        p_imd = 7 * p_in_dbm - 6 * iip7_estimated
 
     else:
         # Generic higher order approximation
         iipn_estimated = iip_dbm + (order - 3) * 5.0
-        return order * p_in_dbm - (order - 1) * iipn_estimated
+        p_imd = order * p_in_dbm - (order - 1) * iipn_estimated
+
+    # Saturation clamp: IM products cannot exceed fundamental power in compression.
+    # Use P1dB if provided for precise clamping, otherwise P_in + 10 dB safety margin.
+    if p1db_dbm is not None:
+        saturation_limit = p1db_dbm + 10.0
+    else:
+        saturation_limit = p_in_dbm + 10.0
+    p_imd = min(p_imd, saturation_limit)
+
+    return p_imd
 
 
 def calculate_system_harmonic_levels(tx_power_dbm: float, system_params: SystemParameters) -> dict:
@@ -769,7 +784,7 @@ def calculate_harmonic_level_quantitative(fundamental_power_dbm: float, harmonic
         fundamental_freq_mhz, harmonic_order, "default"
     )
 
-    total_isolation_db = base_isolation_db + harmonic_isolation_adj
+    total_isolation_db = max(0.0, base_isolation_db + harmonic_isolation_adj)
     
     # Step 4: Calculate harmonic at victim input (before RX filtering)
     harmonic_at_victim_input_dbm = harmonic_after_tx_filter_dbm - total_isolation_db
@@ -1150,47 +1165,18 @@ def assess_quantitative_risk(desensitization_db: float, victim_band_code: str) -
     Returns:
         (risk_level, risk_symbol)
     """
-    # GNSS gets stricter thresholds due to critical nature and weak signal levels
-    if any(tech in victim_band_code.upper() for tech in ['GNSS', 'GPS']):
-        if desensitization_db >= 8.0:
-            return 'Critical', '🔴'  # >8dB GNSS desense = critical (GPS dead zones)
-        elif desensitization_db >= 3.0:
-            return 'High', '🟠'      # 3-8dB = high risk (significant degradation)
-        elif desensitization_db >= 1.0:
-            return 'Medium', '🟡'    # 1-3dB = medium risk (noticeable impact)
-        elif desensitization_db >= 0.5:
-            return 'Low', '🔵'       # 0.5-1dB = low risk (measurable but minor)
-        else:
-            return 'Negligible', '✅'
+    thresholds = get_technology_thresholds(victim_band_code)
+
+    if desensitization_db >= thresholds['critical']:
+        return ('Critical', '🔴')
+    elif desensitization_db >= thresholds['high']:
+        return ('High', '🟠')
+    elif desensitization_db >= thresholds['medium']:
+        return ('Medium', '🟡')
+    elif desensitization_db >= thresholds['low']:
+        return ('Low', '🔵')
     else:
-        # Standard thresholds for other technologies (more robust receivers)
-        if desensitization_db >= 12.0:
-            return 'Critical', '🔴'  # >12dB desense = critical (receiver overload)
-        elif desensitization_db >= 6.0:
-            return 'High', '🟠'      # 6-12dB desense = high risk (significant issues)
-        elif desensitization_db >= 3.0:
-            return 'Medium', '🟡'    # 3-6dB desense = medium risk (performance impact)
-        elif desensitization_db >= 1.0:
-            return 'Low', '🔵'       # 1-3dB desense = low risk (minor degradation)
-        else:
-            return 'Negligible', '✅'  # <1dB = negligible impact
-    
-    # Additional context-based adjustments
-    # Safety-critical systems get stricter assessment
-    if any(critical in victim_band_code.upper() for critical in ['SAFETY', 'EMERGENCY', 'PUBLIC_SAFETY']):
-        # Upgrade risk level for safety-critical systems
-        if desensitization_db >= 5.0:
-            return 'Critical', '🔴'
-        elif desensitization_db >= 2.0:
-            return 'High', '🟠'
-        elif desensitization_db >= 0.5:
-            return 'Medium', '🟡'
-        elif desensitization_db >= 1.0:
-            return 'Medium', '🟡'    # 1-3dB desense = medium risk
-        elif desensitization_db >= 0.1:
-            return 'Low', '🔵'       # 0.1-1dB desense = low risk
-        else:
-            return 'Negligible', '✅' # <0.1dB desense = negligible
+        return ('Safe', '✅')
 
 def get_aggressor_power_quantitative(band_code: str, system_params: SystemParameters) -> float:
     """
@@ -1896,14 +1882,25 @@ def monte_carlo_interference_analysis_multi(
         return None
 
     # Find the worst-case scenario from the products list
-    # Pick the highest-risk product (first after risk-sorted, or first with Risk emoji)
+    # Primary: risk emoji (Critical > High > ...), Tie-break: Severity score (higher = worse)
     worst_product = None
     risk_order = {'🔴': 0, '🟠': 1, '🟡': 2, '🔵': 3, '✅': 4}
 
     for product in interference_products:
-        risk = product.get('Risk', '✅')
-        if worst_product is None or risk_order.get(risk, 4) < risk_order.get(worst_product.get('Risk', '✅'), 4):
+        if worst_product is None:
             worst_product = product
+            continue
+        risk = product.get('Risk', '✅')
+        worst_risk = worst_product.get('Risk', '✅')
+        risk_rank = risk_order.get(risk, 4)
+        worst_rank = risk_order.get(worst_risk, 4)
+        # Primary: lower rank = worse risk
+        if risk_rank < worst_rank:
+            worst_product = product
+        elif risk_rank == worst_rank:
+            # Tie-break: higher Severity score = worse
+            if product.get('Severity', 0) > worst_product.get('Severity', 0):
+                worst_product = product
 
     if worst_product is None:
         worst_product = interference_products[0]

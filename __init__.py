@@ -23,4 +23,7 @@ FEATURES:
 AUTHOR: Adam Engelbrecht 
 VERSION: 1.0
 """
-from .bands import Band, BAND_LIST, BANDS
+try:
+    from .bands import Band, BAND_LIST, BANDS
+except ImportError:
+    from bands import Band, BAND_LIST, BANDS

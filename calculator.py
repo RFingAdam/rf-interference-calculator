@@ -1,5 +1,6 @@
 from typing import List, Tuple, Dict
 from bands import Band
+from constants import get_technology_thresholds
 
 def calculate_all_products(selected_bands: List[Band], guard: float = 0.0, imd2: bool = True, imd4: bool = False, imd5: bool = True, imd7: bool = False, aclr_margin: float = 0.0) -> Tuple[List[Dict], List[str]]:
     """
@@ -865,7 +866,14 @@ def assess_risk_severity(frequency: float, victim_code: str, aggressors: str, pr
     # Start with conservative default severity
     severity = 1  # Start conservative like GitHub version
     risk_symbol = "🔵"  # Default to low risk (blue) for products with victims
-    
+
+    # Technology sensitivity: sensitive receivers start at higher base severity
+    thresholds = get_technology_thresholds(victim_code)
+    if thresholds['critical'] <= 8.0:  # Sensitive technology (GNSS, public safety, etc.)
+        severity = max(severity, 3)
+    elif thresholds['critical'] <= 6.0:  # Moderately sensitive (WiFi, BLE, LoRa)
+        severity = max(severity, 2)
+
     # Assess victim criticality - more conservative matching
     victim_criticality = {
         'GNSS': 5, 'GPS': 5,  # Any GNSS reference is critical
@@ -961,48 +969,18 @@ def assess_risk_severity_quantitative(
     Returns:
         (risk_symbol, severity 1-5, reason_string)
     """
-    # Calculate interference margin for additional context
-    margin_db = victim_sensitivity_dbm - interference_power_dbm
+    thresholds = get_technology_thresholds(victim_code)
 
-    # GNSS/GPS thresholds (most sensitive receivers, safety-critical)
-    # Based on 3GPP TS 36.101 and GPS receiver performance standards
-    if 'GNSS' in victim_code.upper() or 'GPS' in victim_code.upper():
-        if desensitization_db >= 8.0:
-            return ('🔴', 5, f'GPS dead zone ({desensitization_db:.1f}dB desense, {interference_power_dbm:.0f}dBm)')
-        elif desensitization_db >= 3.0:
-            return ('🟠', 4, f'GPS acquisition degraded ({desensitization_db:.1f}dB desense)')
-        elif desensitization_db >= 1.0:
-            return ('🟡', 3, f'GPS tracking affected ({desensitization_db:.1f}dB desense)')
-        elif desensitization_db >= 0.5:
-            return ('🔵', 2, f'Minor GPS impact ({desensitization_db:.1f}dB desense)')
-        else:
-            return ('✅', 1, f'Negligible ({desensitization_db:.2f}dB)')
-
-    # Public Safety bands (FirstNet, LTE B13/B14)
-    elif any(ps in victim_code.upper() for ps in ['B13', 'B14', 'FIRSTNET', 'PUBLIC']):
-        if desensitization_db >= 6.0:
-            return ('🔴', 5, f'Public safety critical ({desensitization_db:.1f}dB desense)')
-        elif desensitization_db >= 3.0:
-            return ('🟠', 4, f'Public safety degraded ({desensitization_db:.1f}dB desense)')
-        elif desensitization_db >= 1.0:
-            return ('🟡', 3, f'Public safety impacted ({desensitization_db:.1f}dB desense)')
-        elif desensitization_db >= 0.5:
-            return ('🔵', 2, f'Minor public safety impact ({desensitization_db:.1f}dB)')
-        else:
-            return ('✅', 1, f'Negligible ({desensitization_db:.2f}dB)')
-
-    # Standard wireless technologies (WiFi, LTE, BLE, etc.)
+    if desensitization_db >= thresholds['critical']:
+        return ('🔴', 5, f'Critical ({desensitization_db:.1f}dB desense, {interference_power_dbm:.0f}dBm)')
+    elif desensitization_db >= thresholds['high']:
+        return ('🟠', 4, f'Significant degradation ({desensitization_db:.1f}dB desense)')
+    elif desensitization_db >= thresholds['medium']:
+        return ('🟡', 3, f'Performance affected ({desensitization_db:.1f}dB desense)')
+    elif desensitization_db >= thresholds['low']:
+        return ('🔵', 2, f'Minor impact ({desensitization_db:.1f}dB desense)')
     else:
-        if desensitization_db >= 12.0:
-            return ('🔴', 5, f'Receiver saturation ({desensitization_db:.1f}dB desense, {interference_power_dbm:.0f}dBm)')
-        elif desensitization_db >= 6.0:
-            return ('🟠', 4, f'Significant degradation ({desensitization_db:.1f}dB desense)')
-        elif desensitization_db >= 3.0:
-            return ('🟡', 3, f'Performance loss ({desensitization_db:.1f}dB desense)')
-        elif desensitization_db >= 1.0:
-            return ('🔵', 2, f'Minor degradation ({desensitization_db:.1f}dB desense)')
-        else:
-            return ('✅', 1, f'Negligible ({desensitization_db:.2f}dB)')
+        return ('✅', 1, f'Negligible ({desensitization_db:.2f}dB)')
 
 
 def calculate_desensitization(

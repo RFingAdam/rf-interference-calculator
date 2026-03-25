@@ -244,6 +244,8 @@ def check_emission_compliance(
         if limit_spec.freq_low_mhz <= product_freq_mhz <= limit_spec.freq_high_mhz:
             if product_bandwidth_mhz > 0 and limit_spec.measurement_bw_mhz > 0:
                 bw_correction = 10 * math.log10(limit_spec.measurement_bw_mhz / product_bandwidth_mhz)
+                # Clamp: normalization only reduces power; product fully captured when measurement BW >= product BW
+                bw_correction = min(0.0, bw_correction)
                 normalized_power_dbm = product_power_dbm + bw_correction
             else:
                 normalized_power_dbm = product_power_dbm

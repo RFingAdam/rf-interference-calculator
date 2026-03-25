@@ -66,5 +66,43 @@ RISK_PIE_COLOR_MAP = {
     'High': '#ef6c00',
     'Medium': '#f57f17',
     'Low': '#1976d2',
-    'Negligible': '#388e3c',
+    'Safe': '#388e3c',
 }
+
+# Technology-dependent desensitization thresholds (dB)
+# Based on receiver sensitivity requirements and link budget margins per technology
+TECHNOLOGY_RISK_THRESHOLDS = {
+    'GNSS':          {'critical': 8.0, 'high': 3.0, 'medium': 1.0, 'low': 0.5},
+    'GPS':           {'critical': 8.0, 'high': 3.0, 'medium': 1.0, 'low': 0.5},
+    'PUBLIC_SAFETY':  {'critical': 6.0, 'high': 3.0, 'medium': 1.0, 'low': 0.5},
+    'WIFI':          {'critical': 6.0, 'high': 3.0, 'medium': 1.0, 'low': 0.5},
+    'BLE':           {'critical': 6.0, 'high': 3.0, 'medium': 1.0, 'low': 0.5},
+    'LORA':          {'critical': 3.0, 'high': 1.0, 'medium': 0.5, 'low': 0.1},
+    'HALOW':         {'critical': 6.0, 'high': 3.0, 'medium': 1.0, 'low': 0.5},
+    'LTE':           {'critical': 12.0, 'high': 6.0, 'medium': 3.0, 'low': 1.0},
+    'NR':            {'critical': 12.0, 'high': 6.0, 'medium': 3.0, 'low': 1.0},
+    'DEFAULT':       {'critical': 12.0, 'high': 6.0, 'medium': 3.0, 'low': 1.0},
+}
+
+
+def get_technology_thresholds(victim_code: str) -> dict:
+    """Look up risk thresholds based on victim band code pattern matching."""
+    victim_upper = victim_code.upper()
+    # Check in priority order (most specific first)
+    if 'GNSS' in victim_upper or 'GPS' in victim_upper:
+        return TECHNOLOGY_RISK_THRESHOLDS['GNSS']
+    if any(ps in victim_upper for ps in ['B13', 'B14', 'FIRSTNET', 'PUBLIC', 'TETRA', 'P25']):
+        return TECHNOLOGY_RISK_THRESHOLDS['PUBLIC_SAFETY']
+    if 'LORA' in victim_upper:
+        return TECHNOLOGY_RISK_THRESHOLDS['LORA']
+    if 'HALOW' in victim_upper:
+        return TECHNOLOGY_RISK_THRESHOLDS['HALOW']
+    if 'WIFI' in victim_upper or 'WI-FI' in victim_upper or 'WiFi' in victim_code:
+        return TECHNOLOGY_RISK_THRESHOLDS['WIFI']
+    if 'BLE' in victim_upper or 'BLUETOOTH' in victim_upper:
+        return TECHNOLOGY_RISK_THRESHOLDS['BLE']
+    if 'NR_' in victim_upper or 'NR_N' in victim_upper:
+        return TECHNOLOGY_RISK_THRESHOLDS['NR']
+    if 'LTE' in victim_upper:
+        return TECHNOLOGY_RISK_THRESHOLDS['LTE']
+    return TECHNOLOGY_RISK_THRESHOLDS['DEFAULT']
