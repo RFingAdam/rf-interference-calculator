@@ -238,5 +238,14 @@ Results should be validated against measurements for regulatory submissions.
 
 GNU Affero General Public License v3.0 (AGPL-3.0) -- Free for personal, educational, and commercial use with source sharing requirements.
 
+## Commercial licensing
+
+This project is licensed under AGPL-3.0-or-later. A commercial license —
+for embedding in a closed-source product, hosting as a paid service
+without AGPL's share-back obligations, or proprietary redistribution —
+is available on a case-by-case basis. See [eng-mcp-suite's licensing
+policy](https://github.com/RFingAdam/eng-mcp-suite/blob/main/LICENSE_SUMMARY.md#commercial-licensing)
+or open an issue and tag `@RFingAdam`.
+
 ---
 *Professional RF interference analysis tool for engineering and regulatory compliance.*
