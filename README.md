@@ -59,7 +59,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
 
 ### Interpreting Results
 - **Desensitization (dB)**: Increase in effective noise floor from interference. 1 dB is noticeable, 3 dB halves range, >6 dB is significant.
-- **Blocking risk**: Separate from desensitization — a strong signal can cause blocking without being in-band.
+- **Blocking risk**: Separate from desensitization. A strong signal can cause blocking without being in-band.
 - **Risk thresholds vary by technology**: GNSS is flagged critical at 8 dB, while LTE tolerates 12 dB before critical.
 - **Monte Carlo p95**: The 95th percentile represents worst-case across manufacturing tolerances and temperature.
 
@@ -240,9 +240,9 @@ GNU Affero General Public License v3.0 (AGPL-3.0) -- Free for personal, educatio
 
 ## Commercial licensing
 
-This project is licensed under AGPL-3.0-or-later. A commercial license —
-for embedding in a closed-source product, hosting as a paid service
-without AGPL's share-back obligations, or proprietary redistribution —
+This project is licensed under AGPL-3.0-or-later. A commercial license
+(for embedding in a closed-source product, hosting as a paid service
+without AGPL's share-back obligations, or proprietary redistribution)
 is available on a case-by-case basis. See [eng-mcp-suite's licensing
 policy](https://github.com/RFingAdam/eng-mcp-suite/blob/main/LICENSE_SUMMARY.md#commercial-licensing)
 or open an issue and tag `@RFingAdam`.

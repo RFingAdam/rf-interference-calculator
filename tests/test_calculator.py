@@ -1,5 +1,5 @@
 """
-Tests for calculator.py — product generation, risk assessment, desensitization.
+Tests for calculator.py: product generation, risk assessment, desensitization.
 Refs GH #10, #11: technology-dependent thresholds, frequency-only risk for GNSS.
 """
 import math
@@ -33,7 +33,7 @@ class TestCalculateAllProducts:
             assert required_keys.issubset(r.keys()), f"Missing keys: {required_keys - r.keys()}"
 
     def test_no_products_from_receive_only_bands(self):
-        """GNSS is receive-only — should not generate TX harmonics."""
+        """GNSS is receive-only: should not generate TX harmonics."""
         gnss = BANDS['GNSS_L1']
         results, _ = calculate_all_products([gnss])
         tx_products = [r for r in results if r['Aggressors'] == 'GNSS_L1']

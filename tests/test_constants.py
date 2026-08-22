@@ -1,5 +1,5 @@
 """
-Tests for constants.py — risk level consistency across all dicts.
+Tests for constants.py: risk level consistency across all dicts.
 Refs GH #8: RISK_PIE_COLOR_MAP 'Negligible' key mismatch.
 """
 from constants import (

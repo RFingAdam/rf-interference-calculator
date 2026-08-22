@@ -1,5 +1,5 @@
 """
-Tests for bands.py — band definitions, frequency accuracy.
+Tests for bands.py: band definitions, frequency accuracy.
 """
 import pytest
 from bands import Band, BAND_LIST, BANDS

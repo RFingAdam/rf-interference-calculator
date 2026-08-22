@@ -1,5 +1,5 @@
 """
-Tests for regulatory_limits.py — emission compliance, bandwidth normalization.
+Tests for regulatory_limits.py: emission compliance, bandwidth normalization.
 Refs GH #14: bandwidth normalization should not increase product power.
 """
 import math

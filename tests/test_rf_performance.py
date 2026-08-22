@@ -1,5 +1,5 @@
 """
-Tests for rf_performance.py — IMD calculations, harmonic levels, isolation, Monte Carlo.
+Tests for rf_performance.py: IMD calculations, harmonic levels, isolation, Monte Carlo.
 Refs GH #9, #12, #13, #15, #19, #20, #28.
 """
 import math
@@ -23,7 +23,7 @@ from rf_performance import (
 
 
 # ============================================================
-# calculate_imd_from_intercept — GH #9 (saturation clamp)
+# calculate_imd_from_intercept: GH #9 (saturation clamp)
 # ============================================================
 
 class TestCalculateImdFromIntercept:
@@ -74,7 +74,7 @@ class TestCalculateImdFromIntercept:
 
 
 # ============================================================
-# calculate_hd2_from_iip2 — GH #15 (bias asymmetry)
+# calculate_hd2_from_iip2: GH #15 (bias asymmetry)
 # ============================================================
 
 class TestCalculateHd2FromIip2:
@@ -140,7 +140,7 @@ class TestCalculateTotalIsolation:
 
 
 # ============================================================
-# calculate_harmonic_isolation_adjustment — GH #12
+# calculate_harmonic_isolation_adjustment: GH #12
 # ============================================================
 
 class TestHarmonicIsolationAdjustment:
@@ -212,7 +212,7 @@ class TestRxFilterRejection:
 
 
 # ============================================================
-# Monte Carlo — GH #13, #19
+# Monte Carlo: GH #13, #19
 # ============================================================
 
 class TestMonteCarlo:
@@ -264,7 +264,7 @@ class TestMonteCarlo:
         result = monte_carlo_interference_analysis_multi(
             params, tolerances, products, num_iterations=50
         )
-        # Both Critical (🔴), but severity 5 > 4 — should pick the 2H product
+        # Both Critical (🔴), but severity 5 > 4: should pick the 2H product
         assert result is not None
         scenario = result.get('scenario', {})
         assert scenario.get('product_type') == 'Harmonic', \
@@ -304,7 +304,7 @@ class TestSystemParameters:
 
 
 # ============================================================
-# GH #26 — SystemParameters validation
+# GH #26: SystemParameters validation
 # ============================================================
 
 class TestSystemParametersValidation:
@@ -364,7 +364,7 @@ class TestSystemParametersValidation:
 
 
 # ============================================================
-# Truncated Gauss — GH #19
+# Truncated Gauss: GH #19
 # ============================================================
 
 class TestTruncatedGauss:
@@ -393,7 +393,7 @@ class TestTruncatedGauss:
 
 
 # ============================================================
-# Monte Carlo physical bounds — GH #19
+# Monte Carlo physical bounds: GH #19
 # ============================================================
 
 class TestMonteCarloPhysicalBounds:
@@ -417,7 +417,7 @@ class TestMonteCarloPhysicalBounds:
 
 
 # ============================================================
-# Temperature coefficients — GH #20
+# Temperature coefficients: GH #20
 # ============================================================
 
 class TestTemperatureCoefficients:
@@ -453,7 +453,7 @@ class TestTemperatureCoefficients:
 
 
 # ============================================================
-# GH #16 — Frequency-dependent TX filter model
+# GH #16: Frequency-dependent TX filter model
 # ============================================================
 
 class TestTxFilterModel:
@@ -512,7 +512,7 @@ class TestTxFilterModel:
 
 
 # ============================================================
-# GH #17 — Frequency-dependent coupling factor
+# GH #17: Frequency-dependent coupling factor
 # ============================================================
 
 class TestEstimateCouplingFactor:
@@ -573,7 +573,7 @@ class TestEstimateCouplingFactor:
 
 
 # ============================================================
-# GH #18 — PAPR modulation-dependent harmonic generation
+# GH #18: PAPR modulation-dependent harmonic generation
 # ============================================================
 
 class TestPaprModel:
@@ -695,7 +695,7 @@ class TestReciprocalMixing:
 
 
 # ============================================================
-# Blocking / P1dB compression — GH #28
+# Blocking / P1dB compression: GH #28
 # ============================================================
 
 class TestBlockingAnalysis:

@@ -1,5 +1,5 @@
 """
-Tests for isolation_matrix.py — band pair isolation requirements.
+Tests for isolation_matrix.py: band pair isolation requirements.
 """
 import pytest
 from isolation_matrix import (

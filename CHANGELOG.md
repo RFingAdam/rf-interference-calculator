@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.2.0] - 2026-03-25
 
 ### Added
-- **Technology-dependent desensitization thresholds**: GNSS (8/3/1/0.5 dB), WiFi/BLE (6/3/1/0.5 dB), LoRa (3/1/0.5/0.1 dB), LTE/NR (12/6/3/1 dB) — each technology now has appropriate risk sensitivity (#10)
+- **Technology-dependent desensitization thresholds**: GNSS (8/3/1/0.5 dB), WiFi/BLE (6/3/1/0.5 dB), LoRa (3/1/0.5/0.1 dB), LTE/NR (12/6/3/1 dB). Each technology now has appropriate risk sensitivity (#10)
 - **Receiver blocking and P1dB compression analysis**: New 5-tier blocking risk assessment alongside desensitization, with configurable RX P1dB parameter (#28)
 - **3-tone IMD products (IM3-3T)**: Triple-beat intermodulation from 3 simultaneous transmitters, with UI toggle for ≤6 bands (#29)
 - **Phase noise / reciprocal mixing model**: LO phase noise contribution to interference with -20 dB/decade profile, critical for GNSS analysis (#30)
