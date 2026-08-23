@@ -238,6 +238,12 @@ Results should be validated against measurements for regulatory submissions.
 
 GNU Affero General Public License v3.0 (AGPL-3.0) -- Free for personal, educational, and commercial use with source sharing requirements.
 
+## Brand assets
+
+The project name and the logo files in this repository are not part of the licensed
+work. The licence above grants no permission to use them, except as needed to describe
+the origin of the work.
+
 ## Commercial licensing
 
 This project is licensed under AGPL-3.0-or-later. A commercial license
